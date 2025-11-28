@@ -1,65 +1,120 @@
-import Image from "next/image";
+import { createSupabaseClient } from "@/lib/supabaseClient";
 
-export default function Home() {
+type Project = {
+  id: number;
+  name: string;
+};
+
+async function loadProjects() {
+  const hasEnv =
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!hasEnv) {
+    return { configured: false, projects: [] as Project[], error: null as string | null };
+  }
+
+  try {
+    const supabase = createSupabaseClient();
+    const { data, error } = await supabase
+      .from("projects")
+      .select("id, name")
+      .order("id", { ascending: true })
+      .limit(5);
+
+    return {
+      configured: true,
+      projects: data ?? [],
+      error: error?.message ?? null,
+    };
+  } catch (error) {
+    return {
+      configured: true,
+      projects: [],
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+export default async function Home() {
+  const { configured, projects, error } = await loadProjects();
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <main className="min-h-screen bg-gradient-to-br from-zinc-50 via-white to-sky-50 px-6 py-16 text-zinc-900">
+      <div className="mx-auto max-w-3xl rounded-2xl border border-zinc-200 bg-white/80 p-10 shadow-xl backdrop-blur">
+        <div className="mb-10 flex flex-col gap-3">
+          <p className="text-sm font-medium uppercase tracking-[0.18em] text-sky-600">
+            Quiz Tracker
+          </p>
+          <h1 className="text-3xl font-semibold text-zinc-900">
+            Next.js + Tailwind + Supabase starter
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="text-lg text-zinc-600">
+            Your stack is wired up and ready. Add your Supabase URL and anon key
+            to start reading and writing data.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-6">
+            <h2 className="mb-3 text-base font-semibold text-zinc-900">
+              Connection status
+            </h2>
+            {!configured && (
+              <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                Add <code>NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
+                <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> to a{" "}
+                <code>.env.local</code> file, then restart <code>npm run dev</code>.
+              </div>
+            )}
+            {configured && !error && (
+              <div className="rounded-lg border border-dashed border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                Connected. Update the query below to match your schema.
+              </div>
+            )}
+            {error && (
+              <div className="mt-3 rounded-lg border border-dashed border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                Supabase responded with: {error}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-6">
+            <h2 className="mb-4 text-base font-semibold text-zinc-900">
+              Sample query
+            </h2>
+            <p className="mb-3 text-sm text-zinc-600">
+              We fetch a few rows from a <code>projects</code> table. Replace this
+              with your own tables or RPC calls.
+            </p>
+            <div className="space-y-2 text-sm">
+              {projects.length === 0 && (
+                <p className="text-zinc-500">No rows yet.</p>
+              )}
+              {projects.map((project) => (
+                <div
+                  key={project.id}
+                  className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-3 py-2 text-zinc-800"
+                >
+                  <span className="font-medium">#{project.id}</span>
+                  <span>{project.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      </main>
-    </div>
+
+        <div className="mt-10 grid gap-3 rounded-xl border border-sky-100 bg-sky-50/80 p-6 text-sm text-sky-900">
+          <div className="font-semibold uppercase tracking-[0.15em] text-sky-700">
+            Quick setup
+          </div>
+          <div>
+            1) Create a <code>.env.local</code> file with your Supabase project values.<br />
+            2) Restart the dev server.<br />
+            3) Swap the <code>projects</code> query in <code>src/app/page.tsx</code> for your own tables.
+          </div>
+        </div>
+      </div>
+    </main>
   );
 }
