@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createChelseaQuiz } from "@/lib/quiz";
+import { createChelseaQuiz, CreateChelseaQuizResult } from "@/lib/quiz";
 
 export default function NewChelseaQuizPage() {
   const router = useRouter();
@@ -15,10 +15,19 @@ export default function NewChelseaQuizPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  const [duplicateQuizId, setDuplicateQuizId] = useState<string | null>(
+    null
+  );
+  const [duplicateQuizDate, setDuplicateQuizDate] = useState<string | null>(
+    null
+  );
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
+    setDuplicateQuizId(null);
+    setDuplicateQuizDate(null);
 
     try {
       const teamNames = team
@@ -26,20 +35,36 @@ export default function NewChelseaQuizPage() {
         .map((n) => n.trim())
         .filter(Boolean);
 
-      const { quiz } = await createChelseaQuiz({
+      const result: CreateChelseaQuizResult = await createChelseaQuiz({
         quizDate: date,
         isBigQuiz: isBig,
         teamNames,
       });
 
+      if (result.status === "duplicate") {
+        // Show dialog instead of throwing
+        setDuplicateQuizId(result.existingQuiz.id);
+        setDuplicateQuizDate(result.existingQuiz.quiz_date);
+        setMessage(
+          `There is already a Chelsea quiz recorded on ${result.existingQuiz.quiz_date}.`
+        );
+        return;
+      }
+
+      // Normal success path
       setMessage("Quiz created ✅");
-      // jump straight to round editor
-      router.push(`/quizzes/${quiz.id}`);
+      router.push(`/quizzes/${result.quiz.id}`);
     } catch (err: any) {
       console.error(err);
       setMessage(`Error: ${err.message ?? "something went wrong"}`);
     } finally {
       setLoading(false);
+    }
+  }
+
+  function handleGoToExisting() {
+    if (duplicateQuizId) {
+      router.push(`/quizzes/${duplicateQuizId}`);
     }
   }
 
@@ -89,7 +114,28 @@ export default function NewChelseaQuizPage() {
         </button>
       </form>
 
-      {message && <p className="text-sm">{message}</p>}
+      {message && (
+        <p className="text-sm mt-2">
+          {message}
+        </p>
+      )}
+
+      {duplicateQuizId && (
+        <div className="mt-4 p-3 border rounded bg-yellow-50 text-sm space-y-2">
+          <p>
+            You already have a Chelsea quiz recorded for{" "}
+            <strong>{duplicateQuizDate}</strong>.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={handleGoToExisting}
+              className="bg-black text-white px-3 py-1 rounded"
+            >
+              Go to existing quiz
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

@@ -13,7 +13,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
-export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase: SupabaseClient = createClient(
+  supabaseUrl,
+  supabaseAnonKey
+);
 
 // ---- Chelsea quiz config ----
 
@@ -30,7 +33,11 @@ export const CHELSEA_ROUNDS = [
   "General Knowledge 2",
 ] as const;
 
-export function getDefaultMaxScore(roundIndex: number, isBigQuiz: boolean): number {
+// Default max scores for Chelsea rounds depending on small/big quiz
+export function getDefaultMaxScore(
+  roundIndex: number,
+  isBigQuiz: boolean
+): number {
   const normalSmall = 5;
   const normalBig = 8;
 
@@ -54,15 +61,14 @@ export function getDefaultMaxScore(roundIndex: number, isBigQuiz: boolean): numb
 // ---- Types ----
 
 export type CreateChelseaQuizInput = {
-  quizDate: string;       // e.g. "2025-11-25" (YYYY-MM-DD)
+  quizDate: string; // e.g. "2025-11-25" (YYYY-MM-DD)
   isBigQuiz: boolean;
-  teamNames: string[];    // ["Karl", "Jess", ...]
+  teamNames: string[]; // ["Karl", "Jess", ...]
   teamsTotal?: number | null;
   position?: number | null;
   notes?: string | null;
 };
 
-// You can refine these if you generate Supabase types:
 type QuizRow = {
   id: string;
   quiz_date: string;
@@ -91,17 +97,27 @@ type PlayerRow = {
   inserted_at: string;
 };
 
+// Result type so the UI can distinguish between a new quiz and a duplicate-date case
+export type CreateChelseaQuizResult =
+  | {
+      status: "created";
+      quiz: QuizRow;
+      rounds: RoundRow[];
+      players: PlayerRow[];
+      playerIdsByName: Record<string, string>;
+    }
+  | {
+      status: "duplicate";
+      existingQuiz: QuizRow;
+    };
+
 // ---- Main function: create a Chelsea quiz ----
 
 export async function createChelseaQuiz(
   input: CreateChelseaQuizInput
-): Promise<{
-  quiz: QuizRow;
-  rounds: RoundRow[];
-  players: PlayerRow[];
-  playerIdsByName: Record<string, string>;
-}> {
-  const { quizDate, isBigQuiz, teamNames, teamsTotal, position, notes } = input;
+): Promise<CreateChelseaQuizResult> {
+  const { quizDate, isBigQuiz, teamNames, teamsTotal, position, notes } =
+    input;
 
   // Normalise names: trim, drop empties, unique
   const uniqueNames = Array.from(
@@ -116,7 +132,7 @@ export async function createChelseaQuiz(
     throw new Error("You must provide at least one team member name.");
   }
 
-  // 1) Insert quiz
+  // 1) Try to insert quiz (this may hit the unique-date constraint)
   const { data: quizData, error: quizError } = await supabase
     .from("quizzes")
     .insert({
@@ -130,14 +146,47 @@ export async function createChelseaQuiz(
     .select()
     .single();
 
-  if (quizError || !quizData) {
+  if (quizError) {
+    const code = (quizError as any).code;
+    const msg = (quizError as any).message as string | undefined;
+
+    const isDuplicate =
+      code === "23505" ||
+      (msg && msg.toLowerCase().includes("duplicate key"));
+
+    if (isDuplicate) {
+      // A quiz already exists for this date (and quiz_name)
+      const { data: existing, error: existingErr } = await supabase
+        .from("quizzes")
+        .select("*")
+        .eq("quiz_date", quizDate)
+        .eq("quiz_name", "Chelsea")
+        .maybeSingle();
+
+      if (existing && !existingErr) {
+        return {
+          status: "duplicate",
+          existingQuiz: existing as QuizRow,
+        };
+      }
+
+      // Fallback if we can't fetch the existing one properly
+      throw new Error(
+        "A quiz already exists on this date, but it could not be loaded."
+      );
+    }
+
     console.error("Quiz insert error:", quizError);
     throw new Error("Failed to create quiz");
   }
 
+  if (!quizData) {
+    throw new Error("Failed to create quiz (no data returned)");
+  }
+
   const quiz = quizData as QuizRow;
 
-  // 2) Upsert players in bulk
+  // 2) Upsert players in bulk by name
   const playersPayload = uniqueNames.map((name) => ({ name }));
 
   const { data: playersData, error: playersError } = await supabase
@@ -155,7 +204,6 @@ export async function createChelseaQuiz(
   // Build map name -> id
   const playerIdsByName: Record<string, string> = {};
   for (const player of players) {
-    // If duplicate names existed before, this might override but that's fine for our case
     playerIdsByName[player.name] = player.id;
   }
 
@@ -204,6 +252,7 @@ export async function createChelseaQuiz(
   const rounds = roundsData as RoundRow[];
 
   return {
+    status: "created",
     quiz,
     rounds,
     players,
