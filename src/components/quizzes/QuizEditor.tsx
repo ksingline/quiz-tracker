@@ -1,4 +1,4 @@
-// src/app/quizzes/[quizId]/QuizRoundsClient.tsx
+// src/app/quizzes/[quizId]/QuizEditor.tsx
 
 "use client";
 
@@ -49,7 +49,7 @@ type QuestionRow = {
   points_scored: number | null;
 };
 
-export default function QuizRoundsClient() {
+export default function QuizEditor() {
   const params = useParams<{ quizId: string }>();
   const quizId = params?.quizId as string | undefined;
 
