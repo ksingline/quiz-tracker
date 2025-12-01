@@ -36,7 +36,7 @@ export default function AppShell({ children }: Props) {
         <div className="flex items-center gap-3">
           {/* New quiz (+) */}
           <button
-            onClick={() => router.push("/new-chelsea-quiz")}
+            onClick={() => router.push("/add-quiz")}
             className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-xl leading-none"
             aria-label="Add new quiz"
           >

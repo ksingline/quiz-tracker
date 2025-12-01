@@ -1,6 +1,11 @@
 // src/app/quizzes/[quizId]/page.tsx
-import QuizEditor from "@/components/quizzes/QuizEditor";
+import AppShell from "@/components/AppShell";
+import QuizViewer from "@/components/quizzes/QuizViewer";
 
 export default function QuizPage() {
-  return <QuizEditor />;
+  return (
+    <AppShell>
+      <QuizViewer />
+    </AppShell>
+  );
 }

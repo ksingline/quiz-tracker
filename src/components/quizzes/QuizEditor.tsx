@@ -1,10 +1,11 @@
-// src/app/quizzes/[quizId]/QuizEditor.tsx
+// src/components/quizzes/QuizEditor.tsx (or src/app/quizzes/[quizId]/QuizEditor.tsx)
 
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/quiz";
+
 
 type QuizRow = {
   id: string;
@@ -35,6 +36,7 @@ type RoundRow = {
   round_name: string | null;
   score: number | null;
   max_score: number | null;
+  notes: string | null;
 };
 
 type QuestionRow = {
@@ -52,6 +54,8 @@ type QuestionRow = {
 export default function QuizEditor() {
   const params = useParams<{ quizId: string }>();
   const quizId = params?.quizId as string | undefined;
+  const searchParams = useSearchParams();
+  const initialRoundParam = searchParams.get("round");
 
   const [quiz, setQuiz] = useState<QuizRow | null>(null);
   const [rounds, setRounds] = useState<RoundRow[]>([]);
@@ -61,6 +65,14 @@ export default function QuizEditor() {
 
   // Joker state: which round_number is joker
   const [jokerRoundNumber, setJokerRoundNumber] = useState<number | null>(
+    null
+  );
+
+  // Quiz-level notes state
+  const [quizNotes, setQuizNotes] = useState<string>("");
+  const [quizNotesOpen, setQuizNotesOpen] = useState(false);
+  const [quizNotesSaving, setQuizNotesSaving] = useState(false);
+  const [quizNotesMessage, setQuizNotesMessage] = useState<string | null>(
     null
   );
 
@@ -76,6 +88,7 @@ export default function QuizEditor() {
     thirdTeamScore: "",
     thirdTeamIsUs: false,
     teamsTotal: "",
+    ourPosition: "",
   });
   const [savingResults, setSavingResults] = useState(false);
   const [resultsMessage, setResultsMessage] = useState<string | null>(null);
@@ -90,12 +103,13 @@ export default function QuizEditor() {
   const [questionsMessage, setQuestionsMessage] = useState<string | null>(
     null
   );
+  const [currentRoundNotes, setCurrentRoundNotes] = useState<string>("");
 
   // ---- Load quiz & rounds ----
   useEffect(() => {
     async function load() {
       if (!quizId) {
-        console.error("[QuizRoundsClient] quizId is falsy from useParams:", params);
+        console.error("[QuizEditor] quizId is falsy from useParams:", params);
         setMessage("Invalid quiz id.");
         setLoading(false);
         return;
@@ -104,7 +118,7 @@ export default function QuizEditor() {
       setLoading(true);
       setMessage(null);
 
-      console.log("[QuizRoundsClient] quizId =", quizId);
+      console.log("[QuizEditor] quizId =", quizId);
 
       const { data: quizData, error: quizError } = await supabase
         .from("quizzes")
@@ -112,14 +126,13 @@ export default function QuizEditor() {
         .eq("id", quizId)
         .maybeSingle();
 
-      console.log("[QuizRoundsClient] quizData =", quizData);
-      console.log("[QuizRoundsClient] quizError =", quizError);
+      console.log("[QuizEditor] quizData =", quizData);
+      console.log("[QuizEditor] quizError =", quizError);
 
       if (quizError) {
-        console.error("[QuizRoundsClient] Error loading quiz:", quizError);
+        console.error("[QuizEditor] Error loading quiz:", quizError);
         setMessage(
-          `Failed to load quiz: ${
-            (quizError as any).message ?? "unknown error"
+          `Failed to load quiz: ${(quizError as any).message ?? "unknown error"
           }`
         );
         setLoading(false);
@@ -127,7 +140,7 @@ export default function QuizEditor() {
       }
 
       if (!quizData) {
-        console.error("[QuizRoundsClient] No quiz found for id:", quizId);
+        console.error("[QuizEditor] No quiz found for id:", quizId);
         setMessage("No quiz found for this id.");
         setLoading(false);
         return;
@@ -136,6 +149,10 @@ export default function QuizEditor() {
       const quizRow = quizData as QuizRow;
       setQuiz(quizRow);
       setJokerRoundNumber(quizRow.joker_round_number ?? null);
+
+      // Initialise quiz-level notes
+      setQuizNotes(quizRow.notes ?? "");
+      setQuizNotesMessage(null);
 
       setResults({
         firstTeamName: quizRow.first_team_name ?? "",
@@ -160,7 +177,12 @@ export default function QuizEditor() {
           quizRow.teams_total != null
             ? String(quizRow.teams_total)
             : "",
+        ourPosition:
+          quizRow.position != null
+            ? String(quizRow.position)
+            : "",
       });
+
 
       const { data: roundsData, error: roundsError } = await supabase
         .from("rounds")
@@ -168,14 +190,13 @@ export default function QuizEditor() {
         .eq("quiz_id", quizId)
         .order("round_number", { ascending: true });
 
-      console.log("[QuizRoundsClient] roundsData =", roundsData);
-      console.log("[QuizRoundsClient] roundsError =", roundsError);
+      console.log("[QuizEditor] roundsData =", roundsData);
+      console.log("[QuizEditor] roundsError =", roundsError);
 
       if (roundsError) {
-        console.error("[QuizRoundsClient] Error loading rounds:", roundsError);
+        console.error("[QuizEditor] Error loading rounds:", roundsError);
         setMessage(
-          `Failed to load rounds: ${
-            (roundsError as any).message ?? "unknown error"
+          `Failed to load rounds: ${(roundsError as any).message ?? "unknown error"
           }`
         );
         setLoading(false);
@@ -188,6 +209,61 @@ export default function QuizEditor() {
 
     load();
   }, [quizId, params]);
+
+  useEffect(() => {
+    if (!initialRoundParam) return;
+    if (!rounds.length) return;
+    if (editingRoundIndex != null) return;
+
+    const roundNumber = Number(initialRoundParam);
+    if (!Number.isFinite(roundNumber)) return;
+
+    const idx = rounds.findIndex(
+      (r) => r.round_number === roundNumber
+    );
+    if (idx >= 0) {
+      // open the questions editor for that round
+      void openQuestionsEditor(idx);
+    }
+  }, [initialRoundParam, rounds, editingRoundIndex]);
+
+  // ---- Quiz notes handler ----
+
+  async function handleSaveQuizNotes() {
+    if (!quiz) return;
+    setQuizNotesSaving(true);
+    setQuizNotesMessage(null);
+
+    try {
+      const trimmed = quizNotes.trim();
+      const { error } = await supabase
+        .from("quizzes")
+        .update({ notes: trimmed === "" ? null : trimmed })
+        .eq("id", quiz.id);
+
+      if (error) {
+        console.error("[QuizEditor] Save quiz notes error:", error);
+        throw error;
+      }
+
+      setQuiz((prev) =>
+        prev
+          ? {
+            ...prev,
+            notes: trimmed === "" ? null : trimmed,
+          }
+          : prev
+      );
+
+      setQuizNotesMessage("Notes saved ✅");
+    } catch (err: any) {
+      setQuizNotesMessage(
+        `Error saving notes: ${err.message ?? "unknown error"}`
+      );
+    } finally {
+      setQuizNotesSaving(false);
+    }
+  }
 
   // ---- Round editor handlers ----
 
@@ -229,7 +305,7 @@ export default function QuizEditor() {
           .eq("id", round.id);
 
         if (error) {
-          console.error("[QuizRoundsClient] Error updating round:", error);
+          console.error("[QuizEditor] Error updating round:", error);
           throw error;
         }
       }
@@ -244,7 +320,7 @@ export default function QuizEditor() {
           .eq("id", quiz.id);
 
         if (quizError) {
-          console.error("[QuizRoundsClient] Error saving joker:", quizError);
+          console.error("[QuizEditor] Error saving joker:", quizError);
           throw quizError;
         }
 
@@ -255,7 +331,7 @@ export default function QuizEditor() {
 
       setMessage("Rounds & joker saved ✅");
     } catch (err: any) {
-      console.error("[QuizRoundsClient] Save rounds error:", err);
+      console.error("[QuizEditor] Save rounds error:", err);
       setMessage(`Error saving: ${err.message ?? "unknown error"}`);
     } finally {
       setSavingRounds(false);
@@ -280,7 +356,8 @@ export default function QuizEditor() {
       | "thirdTeamName"
       | "thirdTeamScore"
       | "thirdTeamIsUs"
-      | "teamsTotal",
+      | "teamsTotal"
+      | "ourPosition",
     value: string | boolean
   ) {
     setResults((prev) => {
@@ -312,10 +389,22 @@ export default function QuizEditor() {
         val.trim() === "" ? null : Number(val);
 
       // Derive position from "our team?" flags
+      // Derive position:
+      // 1) from "our team?" flags if set
       let derivedPosition: number | null = null;
       if (results.firstTeamIsUs) derivedPosition = 1;
       else if (results.secondTeamIsUs) derivedPosition = 2;
       else if (results.thirdTeamIsUs) derivedPosition = 3;
+
+      // 2) else from explicit ourPosition field
+      const explicitPosition = toInt(results.ourPosition);
+
+      const finalPosition =
+        derivedPosition != null
+          ? derivedPosition
+          : explicitPosition != null
+            ? explicitPosition
+            : quiz.position;
 
       const updatePayload = {
         first_team_name:
@@ -341,9 +430,9 @@ export default function QuizEditor() {
 
         teams_total: toInt(results.teamsTotal),
 
-        position:
-          derivedPosition !== null ? derivedPosition : quiz.position,
+        position: finalPosition,
       };
+
 
       const { error } = await supabase
         .from("quizzes")
@@ -351,26 +440,26 @@ export default function QuizEditor() {
         .eq("id", quiz.id);
 
       if (error) {
-        console.error("[QuizRoundsClient] Save results error:", error);
+        console.error("[QuizEditor] Save results error:", error);
         throw error;
       }
 
       setQuiz((prev) =>
         prev
           ? {
-              ...prev,
-              first_team_name: updatePayload.first_team_name,
-              first_team_score: updatePayload.first_team_score,
-              first_team_is_us: updatePayload.first_team_is_us,
-              second_team_name: updatePayload.second_team_name,
-              second_team_score: updatePayload.second_team_score,
-              second_team_is_us: updatePayload.second_team_is_us,
-              third_team_name: updatePayload.third_team_name,
-              third_team_score: updatePayload.third_team_score,
-              third_team_is_us: updatePayload.third_team_is_us,
-              teams_total: updatePayload.teams_total,
-              position: updatePayload.position ?? prev.position,
-            }
+            ...prev,
+            first_team_name: updatePayload.first_team_name,
+            first_team_score: updatePayload.first_team_score,
+            first_team_is_us: updatePayload.first_team_is_us,
+            second_team_name: updatePayload.second_team_name,
+            second_team_score: updatePayload.second_team_score,
+            second_team_is_us: updatePayload.second_team_is_us,
+            third_team_name: updatePayload.third_team_name,
+            third_team_score: updatePayload.third_team_score,
+            third_team_is_us: updatePayload.third_team_is_us,
+            teams_total: updatePayload.teams_total,
+            position: updatePayload.position ?? prev.position,
+          }
           : prev
       );
 
@@ -395,6 +484,9 @@ export default function QuizEditor() {
     setQuestionsLoading(true);
     setQuestionsMessage(null);
 
+    // Initialise round notes for this round
+    setCurrentRoundNotes(round.notes ?? "");
+
     const { data, error } = await supabase
       .from("questions")
       .select("*")
@@ -402,10 +494,9 @@ export default function QuizEditor() {
       .order("question_number", { ascending: true });
 
     if (error) {
-      console.error("[QuizRoundsClient] Error loading questions:", error);
+      console.error("[QuizEditor] Error loading questions:", error);
       setQuestionsMessage(
-        `Failed to load questions: ${
-          (error as any).message ?? "unknown error"
+        `Failed to load questions: ${(error as any).message ?? "unknown error"
         }`
       );
       setQuestions([]);
@@ -489,8 +580,8 @@ export default function QuizEditor() {
             q.is_correct == null
               ? null
               : q.is_correct
-              ? pv
-              : 0;
+                ? pv
+                : 0;
         }
       } else {
         const str = value as string;
@@ -645,25 +736,27 @@ export default function QuizEditor() {
 
         if (insertError) {
           console.error(
-            "[QuizRoundsClient] Error inserting questions:",
+            "[QuizEditor] Error inserting questions:",
             insertError
           );
           throw insertError;
         }
       }
 
-      // Update round score + max_score (with joker handled)
+      // Update round score + max_score (with joker handled) + notes
+      const trimmedRoundNotes = currentRoundNotes.trim();
       const { error: roundUpdateError } = await supabase
         .from("rounds")
         .update({
           score: totalScore,
           max_score: totalMax || currentRound.max_score,
+          notes: trimmedRoundNotes === "" ? null : trimmedRoundNotes,
         })
         .eq("id", currentRound.id);
 
       if (roundUpdateError) {
         console.error(
-          "[QuizRoundsClient] Error updating round from questions:",
+          "[QuizEditor] Error updating round from questions:",
           roundUpdateError
         );
         throw roundUpdateError;
@@ -674,10 +767,11 @@ export default function QuizEditor() {
         prev.map((r, idx) =>
           idx === editingRoundIndex
             ? {
-                ...r,
-                score: totalScore,
-                max_score: totalMax || r.max_score,
-              }
+              ...r,
+              score: totalScore,
+              max_score: totalMax || r.max_score,
+              notes: trimmedRoundNotes === "" ? null : trimmedRoundNotes,
+            }
             : r
         )
       );
@@ -687,7 +781,7 @@ export default function QuizEditor() {
       if (nextRound) {
         const nextIndex =
           editingRoundIndex != null &&
-          editingRoundIndex + 1 < rounds.length
+            editingRoundIndex + 1 < rounds.length
             ? editingRoundIndex + 1
             : null;
 
@@ -700,7 +794,7 @@ export default function QuizEditor() {
         setEditingRoundIndex(null);
       }
     } catch (err: any) {
-      console.error("[QuizRoundsClient] saveQuestions error:", err);
+      console.error("[QuizEditor] saveQuestions error:", err);
       setQuestionsMessage(
         `Error saving questions: ${err.message ?? "unknown error"}`
       );
@@ -749,9 +843,42 @@ export default function QuizEditor() {
             Joker: Round {quiz.joker_round_number}
           </p>
         )}
-        {quiz.notes && (
-          <p className="text-sm text-gray-600">Notes: {quiz.notes}</p>
-        )}
+
+        {/* Quiz-level notes */}
+        <div className="mt-2">
+          <button
+            type="button"
+            className="text-xs underline text-emerald-500"
+            onClick={() => setQuizNotesOpen((open) => !open)}
+          >
+            {quizNotesOpen ? "Hide notes" : "Show notes"}
+          </button>
+          {quizNotesOpen && (
+            <div className="mt-2 space-y-2">
+              <textarea
+                className="w-full min-h-[80px] border border-neutral-800 rounded bg-neutral-950 text-xs px-2 py-1 text-neutral-100"
+                placeholder="Write notes about this quiz night – special events, theme, notable moments..."
+                value={quizNotes}
+                onChange={(e) => setQuizNotes(e.target.value)}
+              />
+              <div className="flex items-center justify-between text-[11px]">
+                <button
+                  type="button"
+                  onClick={handleSaveQuizNotes}
+                  disabled={quizNotesSaving}
+                  className="px-3 py-1 border border-neutral-700 rounded bg-neutral-900 disabled:opacity-60"
+                >
+                  {quizNotesSaving ? "Saving…" : "Save notes"}
+                </button>
+                {quizNotesMessage && (
+                  <span className="text-neutral-400">
+                    {quizNotesMessage}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </header>
 
       {/* Rounds + Joker + Questions button */}
@@ -1026,6 +1153,20 @@ export default function QuizEditor() {
           </table>
         </div>
 
+        <div className="flex items-center gap-2 text-[11px] mt-2">
+          <span>Our position (if not in top 3):</span>
+          <input
+            type="number"
+            className="w-16 border rounded px-1 py-0.5 text-right"
+            value={results.ourPosition}
+            onChange={(e) =>
+              handleResultsChange("ourPosition", e.target.value)
+            }
+            min={1}
+          />
+        </div>
+
+
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-2">
             <span>Total teams:</span>
@@ -1070,6 +1211,19 @@ export default function QuizEditor() {
                 set type + points. Joker is applied automatically for this
                 round if selected above.
               </p>
+
+              {/* Round-level notes */}
+              <div className="mt-2">
+                <label className="text-[11px] text-gray-600 block mb-1">
+                  Round notes
+                </label>
+                <textarea
+                  className="w-full min-h-[60px] border border-neutral-300 rounded bg-white text-xs px-2 py-1 text-gray-900"
+                  placeholder="Notes for this round – special rules, tiebreakers, funny moments..."
+                  value={currentRoundNotes}
+                  onChange={(e) => setCurrentRoundNotes(e.target.value)}
+                />
+              </div>
             </div>
             <button
               type="button"

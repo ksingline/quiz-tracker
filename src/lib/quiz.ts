@@ -1,4 +1,4 @@
-// lib/quiz.ts
+// src/lib/quiz.ts
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
@@ -18,52 +18,13 @@ export const supabase: SupabaseClient = createClient(
   supabaseAnonKey
 );
 
-// ---- Chelsea quiz config ----
-
-export const CHELSEA_ROUNDS = [
-  "General Knowledge 1",
-  "Entertainment",
-  "Geography",
-  "Music",
-  "Sport",
-  "Science",
-  "Facebook",
-  "Pictures",
-  "History",
-  "General Knowledge 2",
-] as const;
-
-// Default max scores for Chelsea rounds depending on small/big quiz
-export function getDefaultMaxScore(
-  roundIndex: number,
-  isBigQuiz: boolean
-): number {
-  const normalSmall = 5;
-  const normalBig = 8;
-
-  const facebookIndex = 6; // 0-based index 6 = Round 7
-  const picturesIndex = 7; // 0-based index 7 = Round 8
-
-  if (roundIndex === facebookIndex) {
-    // Facebook
-    return isBigQuiz ? 10 : 8;
-  }
-
-  if (roundIndex === picturesIndex) {
-    // Pictures
-    return isBigQuiz ? 16 : 10;
-  }
-
-  // All other rounds
-  return isBigQuiz ? normalBig : normalSmall;
-}
-
 // ---- Types ----
 
-export type CreateChelseaQuizInput = {
-  quizDate: string; // e.g. "2025-11-25" (YYYY-MM-DD)
+export type CreateQuizFromFormatInput = {
+  formatSlug: string;       // e.g. "chelsea"
+  quizDate: string;         // "2025-11-25"
   isBigQuiz: boolean;
-  teamNames: string[]; // ["Karl", "Jess", ...]
+  teamNames: string[];      // ["Karl", "Jess", ...]
   teamsTotal?: number | null;
   position?: number | null;
   notes?: string | null;
@@ -78,6 +39,7 @@ type QuizRow = {
   position: number | null;
   notes: string | null;
   inserted_at: string;
+  format_id: string | null;
 };
 
 type RoundRow = {
@@ -97,8 +59,24 @@ type PlayerRow = {
   inserted_at: string;
 };
 
-// Result type so the UI can distinguish between a new quiz and a duplicate-date case
-export type CreateChelseaQuizResult =
+type FormatRow = {
+  id: string;
+  slug: string;
+  name: string;
+  has_joker: boolean;
+  supports_big_quiz: boolean;
+};
+
+type FormatRoundRow = {
+  id: string;
+  format_id: string;
+  round_number: number;
+  round_name: string;
+  default_small_max: number | null;
+  default_big_max: number | null;
+};
+
+export type CreateQuizFromFormatResult =
   | {
       status: "created";
       quiz: QuizRow;
@@ -111,15 +89,29 @@ export type CreateChelseaQuizResult =
       existingQuiz: QuizRow;
     };
 
-// ---- Main function: create a Chelsea quiz ----
+// Convenience aliases for existing code that uses Chelsea creator
+export type CreateChelseaQuizInput = Omit<
+  CreateQuizFromFormatInput,
+  "formatSlug"
+>;
+export type CreateChelseaQuizResult = CreateQuizFromFormatResult;
 
-export async function createChelseaQuiz(
-  input: CreateChelseaQuizInput
-): Promise<CreateChelseaQuizResult> {
-  const { quizDate, isBigQuiz, teamNames, teamsTotal, position, notes } =
-    input;
+// ---- Generic creator: create quiz from a format ----
 
-  // Normalise names: trim, drop empties, unique
+export async function createQuizFromFormat(
+  input: CreateQuizFromFormatInput
+): Promise<CreateQuizFromFormatResult> {
+  const {
+    formatSlug,
+    quizDate,
+    isBigQuiz,
+    teamNames,
+    teamsTotal,
+    position,
+    notes,
+  } = input;
+
+  // 0) Normalise team names
   const uniqueNames = Array.from(
     new Set(
       teamNames
@@ -127,21 +119,35 @@ export async function createChelseaQuiz(
         .filter(Boolean)
     )
   );
-
   if (uniqueNames.length === 0) {
     throw new Error("You must provide at least one team member name.");
   }
 
-  // 1) Try to insert quiz (this may hit the unique-date constraint)
+  // 1) Look up the format by slug
+  const { data: formatData, error: formatError } = await supabase
+    .from("quiz_formats")
+    .select("*")
+    .eq("slug", formatSlug)
+    .maybeSingle();
+
+  if (formatError || !formatData) {
+    console.error("[createQuizFromFormat] format error:", formatError);
+    throw new Error(`Quiz format '${formatSlug}' not found.`);
+  }
+
+  const format = formatData as FormatRow;
+
+  // 2) Try to insert quiz (may hit unique date constraint)
   const { data: quizData, error: quizError } = await supabase
     .from("quizzes")
     .insert({
       quiz_date: quizDate,
-      quiz_name: "Chelsea",
+      quiz_name: format.name,
       is_big_quiz: isBigQuiz,
       teams_total: teamsTotal ?? null,
       position: position ?? null,
       notes: notes ?? null,
+      format_id: format.id,
     })
     .select()
     .single();
@@ -155,12 +161,11 @@ export async function createChelseaQuiz(
       (msg && msg.toLowerCase().includes("duplicate key"));
 
     if (isDuplicate) {
-      // A quiz already exists for this date (and quiz_name)
+      // We only allow one quiz per date overall, so fetch existing quiz on that date.
       const { data: existing, error: existingErr } = await supabase
         .from("quizzes")
         .select("*")
         .eq("quiz_date", quizDate)
-        .eq("quiz_name", "Chelsea")
         .maybeSingle();
 
       if (existing && !existingErr) {
@@ -170,13 +175,12 @@ export async function createChelseaQuiz(
         };
       }
 
-      // Fallback if we can't fetch the existing one properly
       throw new Error(
         "A quiz already exists on this date, but it could not be loaded."
       );
     }
 
-    console.error("Quiz insert error:", quizError);
+    console.error("[createQuizFromFormat] quiz insert error:", quizError);
     throw new Error("Failed to create quiz");
   }
 
@@ -186,7 +190,7 @@ export async function createChelseaQuiz(
 
   const quiz = quizData as QuizRow;
 
-  // 2) Upsert players in bulk by name
+  // 3) Upsert players in bulk by name
   const playersPayload = uniqueNames.map((name) => ({ name }));
 
   const { data: playersData, error: playersError } = await supabase
@@ -195,19 +199,18 @@ export async function createChelseaQuiz(
     .select();
 
   if (playersError || !playersData) {
-    console.error("Players upsert error:", playersError);
+    console.error("[createQuizFromFormat] players upsert error:", playersError);
     throw new Error("Failed to upsert players");
   }
 
   const players = playersData as PlayerRow[];
 
-  // Build map name -> id
   const playerIdsByName: Record<string, string> = {};
   for (const player of players) {
     playerIdsByName[player.name] = player.id;
   }
 
-  // 3) Insert quiz_players links
+  // 4) Insert quiz_players links
   const quizPlayersRows = uniqueNames
     .map((name) => {
       const playerId = playerIdsByName[name];
@@ -225,18 +228,39 @@ export async function createChelseaQuiz(
       .insert(quizPlayersRows);
 
     if (qpError) {
-      console.error("quiz_players insert error:", qpError);
+      console.error("[createQuizFromFormat] quiz_players insert error:", qpError);
       throw new Error("Failed to link players to quiz");
     }
   }
 
-  // 4) Insert Chelsea rounds with default max_score
-  const roundsPayload = CHELSEA_ROUNDS.map((roundName, index) => ({
+  // 5) Load format rounds and create actual rounds
+  const { data: formatRoundsData, error: formatRoundsError } = await supabase
+    .from("quiz_format_rounds")
+    .select("*")
+    .eq("format_id", format.id)
+    .order("round_number", { ascending: true });
+
+  if (formatRoundsError) {
+    console.error(
+      "[createQuizFromFormat] format rounds error:",
+      formatRoundsError
+    );
+    throw new Error("Failed to load format rounds");
+  }
+
+  const formatRounds = (formatRoundsData ?? []) as FormatRoundRow[];
+  if (formatRounds.length === 0) {
+    throw new Error(
+      `Format '${formatSlug}' has no rounds defined. Add them in the Formats section.`
+    );
+  }
+
+  const roundsPayload = formatRounds.map((fr) => ({
     quiz_id: quiz.id,
-    round_number: index + 1,
-    round_name: roundName,
-    score: null, // to be filled in later
-    max_score: getDefaultMaxScore(index, isBigQuiz),
+    round_number: fr.round_number,
+    round_name: fr.round_name,
+    score: null,
+    max_score: isBigQuiz ? fr.default_big_max : fr.default_small_max,
   }));
 
   const { data: roundsData, error: roundsError } = await supabase
@@ -245,7 +269,7 @@ export async function createChelseaQuiz(
     .select();
 
   if (roundsError || !roundsData) {
-    console.error("Rounds insert error:", roundsError);
+    console.error("[createQuizFromFormat] rounds insert error:", roundsError);
     throw new Error("Failed to create rounds for quiz");
   }
 
@@ -258,4 +282,15 @@ export async function createChelseaQuiz(
     players,
     playerIdsByName,
   };
+}
+
+// ---- Chelsea-specific wrapper for existing code ----
+
+export async function createChelseaQuiz(
+  input: CreateChelseaQuizInput
+): Promise<CreateChelseaQuizResult> {
+  return createQuizFromFormat({
+    ...input,
+    formatSlug: "chelsea",
+  });
 }
