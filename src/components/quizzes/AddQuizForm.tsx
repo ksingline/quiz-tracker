@@ -290,7 +290,7 @@ export default function AddQuizForm() {
                 return;
             }
 
-            router.push(`/quizzes/${result.quiz.id}`);
+            router.push(`/quizzes/${result.quiz.id}/edit`);
         } catch (err: any) {
             console.error("[AddQuizForm] error creating quiz:", err);
             setMessage(err.message ?? "Something went wrong creating the quiz.");
