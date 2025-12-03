@@ -23,6 +23,7 @@ type RoundRow = {
   score: number | null;
   max_score: number | null;
   notes: string | null;
+  highest_unique: boolean | null;
 };
 
 type PlayerRow = {
@@ -79,7 +80,9 @@ export default function QuizViewer() {
         // 2) Rounds
         const { data: roundsData, error: roundsError } = await supabase
           .from("rounds")
-          .select("id, quiz_id, round_number, round_name, score, max_score, notes")
+          .select(
+            "id, quiz_id, round_number, round_name, score, max_score, notes, highest_unique"
+          )
           .eq("quiz_id", quizId)
           .order("round_number", { ascending: true });
 
@@ -212,9 +215,11 @@ export default function QuizViewer() {
             <p className="text-xs text-neutral-400">
               {quiz.quiz_date}
               {quiz.is_big_quiz && (
-                <span className="ml-2 inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-[2px] text-[10px] text-emerald-300 border border-emerald-500/40">
-                  Big quiz
-                </span>
+                <span
+  className="inline-flex items-center px-2 py-[2px] ml-1.5 rounded-md border border-blue-400/60 bg-blue-400/10 text-[10px] font-medium uppercase tracking-wide  text-blue-200">
+  Big Quiz
+</span>
+
               )}
             </p>
           </div>
@@ -234,9 +239,9 @@ export default function QuizViewer() {
             value={
               totalMax > 0
                 ? `${totalScore}/${totalMax} (${(
-                    (totalScore / totalMax) *
-                    100
-                  ).toFixed(1)}%)`
+                  (totalScore / totalMax) *
+                  100
+                ).toFixed(1)}%)`
                 : "—"
             }
           />
@@ -244,9 +249,8 @@ export default function QuizViewer() {
             label="Attendees"
             value={
               attendeesCount > 0
-                ? `${attendeesCount} player${
-                    attendeesCount === 1 ? "" : "s"
-                  }`
+                ? `${attendeesCount} player${attendeesCount === 1 ? "" : "s"
+                }`
                 : "—"
             }
           />
@@ -303,26 +307,40 @@ export default function QuizViewer() {
                 const hasQuestions = roundsWithQuestions.has(r.id);
                 const hasNotes =
                   r.notes != null && r.notes.trim().length > 0;
+
                 return (
                   <tr
                     key={r.id}
                     className="border-b border-neutral-900 last:border-0 hover:bg-neutral-900 cursor-pointer"
                     onClick={() => goToRound(r.round_number)}
                   >
+                    <td className="py-1 px-1 align-top">{r.round_number}</td>
+
+                    {/* Round name + HU badge */}
                     <td className="py-1 px-1 align-top">
-                      {r.round_number}
-                    </td>
-                    <td className="py-1 px-1 align-top">
-                      <div className="text-neutral-100">
-                        {r.round_name ?? ""}
+                      <div className="flex items-center gap-2">
+                        <span className="text-neutral-100">
+                          {r.round_name ?? ""}
+                        </span>
+
+                        {r.highest_unique && (
+                          <span
+                            className="inline-flex items-center px-2 py-[2px] rounded-md border border-emerald-300  bg-emerald-300/20  text-[10px] font-medium uppercase tracking-wide  text-emerald-100 shadow-[0_0_10px_rgba(16,185,129,0.6)]">
+                            HU
+                          </span>
+
+                        )}
                       </div>
                     </td>
+
                     <td className="py-1 px-1 text-right align-top">
                       {r.score ?? "—"}
                     </td>
+
                     <td className="py-1 px-1 text-right align-top">
                       {r.max_score ?? "—"}
                     </td>
+
                     <td className="py-1 px-1 text-center align-top">
                       {hasQuestions || hasNotes ? (
                         <span className="inline-flex items-center gap-1 text-[10px] text-emerald-300">
@@ -330,15 +348,14 @@ export default function QuizViewer() {
                           {hasNotes && <span>Notes</span>}
                         </span>
                       ) : (
-                        <span className="text-[10px] text-neutral-500">
-                          —
-                        </span>
+                        <span className="text-[10px] text-neutral-500">—</span>
                       )}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
+
           </table>
         </div>
       </section>

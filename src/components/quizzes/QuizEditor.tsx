@@ -37,6 +37,7 @@ type RoundRow = {
   score: number | null;
   max_score: number | null;
   notes: string | null;
+  highest_unique: boolean | null;
 };
 
 type QuestionRow = {
@@ -287,6 +288,16 @@ export default function QuizEditor() {
       return copy;
     });
   }
+  function handleRoundHighestUniqueChange(index: number, checked: boolean) {
+    setRounds((prev) => {
+      const copy = [...prev];
+      copy[index] = {
+        ...copy[index],
+        highest_unique: checked,
+      };
+      return copy;
+    });
+  }
 
   async function handleSaveRounds() {
     setSavingRounds(true);
@@ -301,6 +312,7 @@ export default function QuizEditor() {
             round_name: round.round_name,
             score: round.score,
             max_score: round.max_score,
+            highest_unique: round.highest_unique ?? false,
           })
           .eq("id", round.id);
 
@@ -890,6 +902,7 @@ export default function QuizEditor() {
               <th className="text-left py-1 pr-2">Round</th>
               <th className="text-right py-1 px-2">Score</th>
               <th className="text-right py-1 px-2">Max</th>
+              <th className="text-center py-1 px-2">HU</th>
               <th className="text-center py-1 px-2">Joker</th>
               <th className="text-right py-1 px-2"></th>
             </tr>
@@ -950,6 +963,17 @@ export default function QuizEditor() {
                       min={0}
                     />
                   </td>
+
+                  <td className="py-1 px-2 text-center">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(round.highest_unique)}
+                      onChange={(e) =>
+                        handleRoundHighestUniqueChange(idx, e.target.checked)
+                      }
+                    />
+                  </td>
+                  
                   <td className="py-1 px-2 text-center">
                     {isPictures ? (
                       <span className="text-xs text-gray-400">—</span>
