@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/quiz";
 
-
 type QuizRow = {
   id: string;
   quiz_date: string;
@@ -50,6 +49,11 @@ type QuestionRow = {
   question_type: "normal" | "killer" | "wipeout";
   points_value: number | null;
   points_scored: number | null;
+};
+
+type PlayerRow = {
+  id: string;
+  name: string;
 };
 
 export default function QuizEditor() {
@@ -106,7 +110,14 @@ export default function QuizEditor() {
   );
   const [currentRoundNotes, setCurrentRoundNotes] = useState<string>("");
 
-  // ---- Load quiz & rounds ----
+  // Metadata: players & date
+  const [allPlayers, setAllPlayers] = useState<PlayerRow[]>([]);
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
+  const [metaSaving, setMetaSaving] = useState(false);
+  const [metaMessage, setMetaMessage] = useState<string | null>(null);
+  const [quizDate, setQuizDate] = useState<string>("");
+
+  // ---- Load quiz, rounds, players, attendees ----
   useEffect(() => {
     async function load() {
       if (!quizId) {
@@ -133,7 +144,8 @@ export default function QuizEditor() {
       if (quizError) {
         console.error("[QuizEditor] Error loading quiz:", quizError);
         setMessage(
-          `Failed to load quiz: ${(quizError as any).message ?? "unknown error"
+          `Failed to load quiz: ${
+            (quizError as any).message ?? "unknown error"
           }`
         );
         setLoading(false);
@@ -155,6 +167,7 @@ export default function QuizEditor() {
       setQuizNotes(quizRow.notes ?? "");
       setQuizNotesMessage(null);
 
+      // Initial results state
       setResults({
         firstTeamName: quizRow.first_team_name ?? "",
         firstTeamScore:
@@ -175,16 +188,15 @@ export default function QuizEditor() {
             : "",
         thirdTeamIsUs: Boolean(quizRow.third_team_is_us),
         teamsTotal:
-          quizRow.teams_total != null
-            ? String(quizRow.teams_total)
-            : "",
+          quizRow.teams_total != null ? String(quizRow.teams_total) : "",
         ourPosition:
-          quizRow.position != null
-            ? String(quizRow.position)
-            : "",
+          quizRow.position != null ? String(quizRow.position) : "",
       });
 
+      // Quiz date state
+      setQuizDate(quizRow.quiz_date ?? "");
 
+      // Rounds
       const { data: roundsData, error: roundsError } = await supabase
         .from("rounds")
         .select("*")
@@ -197,7 +209,8 @@ export default function QuizEditor() {
       if (roundsError) {
         console.error("[QuizEditor] Error loading rounds:", roundsError);
         setMessage(
-          `Failed to load rounds: ${(roundsError as any).message ?? "unknown error"
+          `Failed to load rounds: ${
+            (roundsError as any).message ?? "unknown error"
           }`
         );
         setLoading(false);
@@ -205,6 +218,33 @@ export default function QuizEditor() {
       }
 
       setRounds((roundsData as RoundRow[]) ?? []);
+
+      // All players list
+      const { data: playersData, error: playersError } = await supabase
+        .from("players")
+        .select("id, name")
+        .order("name", { ascending: true });
+
+      if (playersError) {
+        console.error("[QuizEditor] players error:", playersError);
+      } else {
+        setAllPlayers((playersData ?? []) as PlayerRow[]);
+      }
+
+      // Current attendees for this quiz
+      const { data: qpData, error: qpError } = await supabase
+        .from("quiz_players")
+        .select("player_id")
+        .eq("quiz_id", quizId);
+
+      if (qpError) {
+        console.error("[QuizEditor] quiz_players error:", qpError);
+      } else {
+        const ids =
+          (qpData ?? []).map((row: any) => row.player_id as string) ?? [];
+        setSelectedPlayerIds(ids);
+      }
+
       setLoading(false);
     }
 
@@ -219,9 +259,7 @@ export default function QuizEditor() {
     const roundNumber = Number(initialRoundParam);
     if (!Number.isFinite(roundNumber)) return;
 
-    const idx = rounds.findIndex(
-      (r) => r.round_number === roundNumber
-    );
+    const idx = rounds.findIndex((r) => r.round_number === roundNumber);
     if (idx >= 0) {
       // open the questions editor for that round
       void openQuestionsEditor(idx);
@@ -250,9 +288,9 @@ export default function QuizEditor() {
       setQuiz((prev) =>
         prev
           ? {
-            ...prev,
-            notes: trimmed === "" ? null : trimmed,
-          }
+              ...prev,
+              notes: trimmed === "" ? null : trimmed,
+            }
           : prev
       );
 
@@ -288,6 +326,7 @@ export default function QuizEditor() {
       return copy;
     });
   }
+
   function handleRoundHighestUniqueChange(index: number, checked: boolean) {
     setRounds((prev) => {
       const copy = [...prev];
@@ -400,7 +439,6 @@ export default function QuizEditor() {
       const toInt = (val: string) =>
         val.trim() === "" ? null : Number(val);
 
-      // Derive position from "our team?" flags
       // Derive position:
       // 1) from "our team?" flags if set
       let derivedPosition: number | null = null;
@@ -415,8 +453,8 @@ export default function QuizEditor() {
         derivedPosition != null
           ? derivedPosition
           : explicitPosition != null
-            ? explicitPosition
-            : quiz.position;
+          ? explicitPosition
+          : quiz.position;
 
       const updatePayload = {
         first_team_name:
@@ -445,7 +483,6 @@ export default function QuizEditor() {
         position: finalPosition,
       };
 
-
       const { error } = await supabase
         .from("quizzes")
         .update(updatePayload)
@@ -459,19 +496,19 @@ export default function QuizEditor() {
       setQuiz((prev) =>
         prev
           ? {
-            ...prev,
-            first_team_name: updatePayload.first_team_name,
-            first_team_score: updatePayload.first_team_score,
-            first_team_is_us: updatePayload.first_team_is_us,
-            second_team_name: updatePayload.second_team_name,
-            second_team_score: updatePayload.second_team_score,
-            second_team_is_us: updatePayload.second_team_is_us,
-            third_team_name: updatePayload.third_team_name,
-            third_team_score: updatePayload.third_team_score,
-            third_team_is_us: updatePayload.third_team_is_us,
-            teams_total: updatePayload.teams_total,
-            position: updatePayload.position ?? prev.position,
-          }
+              ...prev,
+              first_team_name: updatePayload.first_team_name,
+              first_team_score: updatePayload.first_team_score,
+              first_team_is_us: updatePayload.first_team_is_us,
+              second_team_name: updatePayload.second_team_name,
+              second_team_score: updatePayload.second_team_score,
+              second_team_is_us: updatePayload.second_team_is_us,
+              third_team_name: updatePayload.third_team_name,
+              third_team_score: updatePayload.third_team_score,
+              third_team_is_us: updatePayload.third_team_is_us,
+              teams_total: updatePayload.teams_total,
+              position: updatePayload.position ?? prev.position,
+            }
           : prev
       );
 
@@ -482,6 +519,79 @@ export default function QuizEditor() {
       );
     } finally {
       setSavingResults(false);
+    }
+  }
+
+  // ---- Metadata handlers (date + attendees) ----
+
+  function togglePlayer(playerId: string) {
+    setSelectedPlayerIds((prev) =>
+      prev.includes(playerId)
+        ? prev.filter((id) => id !== playerId)
+        : [...prev, playerId]
+    );
+  }
+
+  async function saveMetadata() {
+    if (!quiz) return;
+
+    setMetaSaving(true);
+    setMetaMessage(null);
+
+    try {
+      // Update quiz date
+      const { error: quizError } = await supabase
+        .from("quizzes")
+        .update({ quiz_date: quizDate })
+        .eq("id", quiz.id);
+
+      if (quizError) {
+        console.error("[QuizEditor] update quiz metadata error:", quizError);
+        throw quizError;
+      }
+
+      // Replace attendees in quiz_players
+      const { error: deleteError } = await supabase
+        .from("quiz_players")
+        .delete()
+        .eq("quiz_id", quiz.id);
+
+      if (deleteError) {
+        console.error("[QuizEditor] delete quiz_players error:", deleteError);
+        throw deleteError;
+      }
+
+      if (selectedPlayerIds.length > 0) {
+        const rows = selectedPlayerIds.map((playerId) => ({
+          quiz_id: quiz.id,
+          player_id: playerId,
+        }));
+
+        const { error: insertError } = await supabase
+          .from("quiz_players")
+          .insert(rows);
+
+        if (insertError) {
+          console.error(
+            "[QuizEditor] insert quiz_players error:",
+            insertError
+          );
+          throw insertError;
+        }
+      }
+
+      setQuiz((prev) =>
+        prev ? { ...prev, quiz_date: quizDate } : prev
+      );
+
+      setMetaMessage("Metadata saved ✅");
+    } catch (err: any) {
+      console.error("[QuizEditor] saveMetadata error:", err);
+      setMetaMessage(
+        err.message ?? "Failed to save metadata."
+      );
+    } finally {
+      setMetaSaving(false);
     }
   }
 
@@ -508,7 +618,8 @@ export default function QuizEditor() {
     if (error) {
       console.error("[QuizEditor] Error loading questions:", error);
       setQuestionsMessage(
-        `Failed to load questions: ${(error as any).message ?? "unknown error"
+        `Failed to load questions: ${
+          (error as any).message ?? "unknown error"
         }`
       );
       setQuestions([]);
@@ -545,9 +656,7 @@ export default function QuizEditor() {
         question_text: (q.question_text ?? "") as string | null,
         our_answer: (q.our_answer ?? "") as string | null,
         is_correct:
-          q.is_correct === null
-            ? null
-            : Boolean(q.is_correct),
+          q.is_correct === null ? null : Boolean(q.is_correct),
         question_type: (q.question_type ??
           "normal") as QuestionRow["question_type"],
         points_value:
@@ -589,11 +698,7 @@ export default function QuizEditor() {
         if (q.question_type === "normal") {
           const pv = q.points_value ?? 1;
           q.points_scored =
-            q.is_correct == null
-              ? null
-              : q.is_correct
-                ? pv
-                : 0;
+            q.is_correct == null ? null : q.is_correct ? pv : 0;
         }
       } else {
         const str = value as string;
@@ -779,11 +884,12 @@ export default function QuizEditor() {
         prev.map((r, idx) =>
           idx === editingRoundIndex
             ? {
-              ...r,
-              score: totalScore,
-              max_score: totalMax || r.max_score,
-              notes: trimmedRoundNotes === "" ? null : trimmedRoundNotes,
-            }
+                ...r,
+                score: totalScore,
+                max_score: totalMax || r.max_score,
+                notes:
+                  trimmedRoundNotes === "" ? null : trimmedRoundNotes,
+              }
             : r
         )
       );
@@ -793,7 +899,7 @@ export default function QuizEditor() {
       if (nextRound) {
         const nextIndex =
           editingRoundIndex != null &&
-            editingRoundIndex + 1 < rounds.length
+          editingRoundIndex + 1 < rounds.length
             ? editingRoundIndex + 1
             : null;
 
@@ -893,6 +999,69 @@ export default function QuizEditor() {
         </div>
       </header>
 
+      {/* Quiz metadata: date + attendees */}
+      <section className="border border-neutral-800 rounded-lg p-3 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-xs font-semibold text-neutral-200">
+            Quiz metadata
+          </h2>
+          <button
+            type="button"
+            onClick={saveMetadata}
+            disabled={metaSaving}
+            className="px-3 py-1 text-xs border border-neutral-700 rounded bg-neutral-900 disabled:opacity-60"
+          >
+            {metaSaving ? "Saving…" : "Save metadata"}
+          </button>
+        </div>
+
+        {/* Date input */}
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-neutral-400">Date</label>
+          <input
+            type="date"
+            value={quizDate ?? ""}
+            onChange={(e) => setQuizDate(e.target.value)}
+            className="bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-[11px] text-neutral-100"
+          />
+        </div>
+
+        {/* Attendees multi-select */}
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-neutral-400">Attendees</label>
+          {allPlayers.length === 0 ? (
+            <p className="text-[11px] text-neutral-500">
+              No players defined yet.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {allPlayers.map((p) => {
+                const selected = selectedPlayerIds.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => togglePlayer(p.id)}
+                    className={
+                      "px-2 py-[3px] rounded-full text-[11px] border " +
+                      (selected
+                        ? "bg-emerald-500 text-black border-emerald-400"
+                        : "bg-neutral-900 text-neutral-200 border-neutral-700")
+                    }
+                  >
+                    {p.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {metaMessage && (
+          <p className="text-[11px] text-neutral-400">{metaMessage}</p>
+        )}
+      </section>
+
       {/* Rounds + Joker + Questions button */}
       <section className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
@@ -969,11 +1138,14 @@ export default function QuizEditor() {
                       type="checkbox"
                       checked={Boolean(round.highest_unique)}
                       onChange={(e) =>
-                        handleRoundHighestUniqueChange(idx, e.target.checked)
+                        handleRoundHighestUniqueChange(
+                          idx,
+                          e.target.checked
+                        )
                       }
                     />
                   </td>
-                  
+
                   <td className="py-1 px-2 text-center">
                     {isPictures ? (
                       <span className="text-xs text-gray-400">—</span>
@@ -1190,7 +1362,6 @@ export default function QuizEditor() {
           />
         </div>
 
-
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-2">
             <span>Total teams:</span>
@@ -1245,7 +1416,9 @@ export default function QuizEditor() {
                   className="w-full min-h-[60px] border border-neutral-300 rounded bg-white text-xs px-2 py-1 text-gray-900"
                   placeholder="Notes for this round – special rules, tiebreakers, funny moments..."
                   value={currentRoundNotes}
-                  onChange={(e) => setCurrentRoundNotes(e.target.value)}
+                  onChange={(e) =>
+                    setCurrentRoundNotes(e.target.value)
+                  }
                 />
               </div>
             </div>
@@ -1268,8 +1441,12 @@ export default function QuizEditor() {
                     <tr className="border-b">
                       <th className="text-left py-1 px-1">#</th>
                       <th className="text-left py-1 px-1">Question</th>
-                      <th className="text-left py-1 px-1">Our answer</th>
-                      <th className="text-center py-1 px-1">Correct?</th>
+                      <th className="text-left py-1 px-1">
+                        Our answer
+                      </th>
+                      <th className="text-center py-1 px-1">
+                        Correct?
+                      </th>
                       <th className="text-left py-1 px-1">Type</th>
                       <th className="text-right py-1 px-1">
                         Points scored
@@ -1388,7 +1565,9 @@ export default function QuizEditor() {
           )}
 
           {questionsMessage && (
-            <p className="text-xs text-gray-700">{questionsMessage}</p>
+            <p className="text-xs text-gray-700">
+              {questionsMessage}
+            </p>
           )}
 
           <div className="flex gap-2 justify-end text-xs mt-2">

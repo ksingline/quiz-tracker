@@ -13,6 +13,16 @@ type QuizRow = {
   teams_total: number | null;
   position: number | null;
   notes: string | null;
+
+  first_team_name: string | null;
+  first_team_score: number | null;
+  first_team_is_us: boolean | null;
+  second_team_name: string | null;
+  second_team_score: number | null;
+  second_team_is_us: boolean | null;
+  third_team_name: string | null;
+  third_team_score: number | null;
+  third_team_is_us: boolean | null;
 };
 
 type RoundRow = {
@@ -39,9 +49,9 @@ export default function QuizViewer() {
   const [quiz, setQuiz] = useState<QuizRow | null>(null);
   const [rounds, setRounds] = useState<RoundRow[]>([]);
   const [players, setPlayers] = useState<PlayerRow[]>([]);
-  const [roundsWithQuestions, setRoundsWithQuestions] = useState<
-    Set<string>
-  >(new Set());
+  const [roundsWithQuestions, setRoundsWithQuestions] = useState<Set<string>>(
+    new Set()
+  );
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -61,7 +71,24 @@ export default function QuizViewer() {
         const { data: quizData, error: quizError } = await supabase
           .from("quizzes")
           .select(
-            "id, quiz_date, quiz_name, is_big_quiz, teams_total, position, notes"
+            `
+            id,
+            quiz_date,
+            quiz_name,
+            is_big_quiz,
+            teams_total,
+            position,
+            notes,
+            first_team_name,
+            first_team_score,
+            first_team_is_us,
+            second_team_name,
+            second_team_score,
+            second_team_is_us,
+            third_team_name,
+            third_team_score,
+            third_team_is_us
+          `
           )
           .eq("id", quizId)
           .maybeSingle();
@@ -106,7 +133,7 @@ export default function QuizViewer() {
         }
 
         const playerIds =
-          (qpData ?? []).map((qp: any) => qp.player_id) ?? [];
+          (qpData ?? []).map((qp: any) => qp.player_id as string) ?? [];
 
         if (playerIds.length > 0) {
           const { data: playersData, error: playersError } = await supabase
@@ -117,7 +144,6 @@ export default function QuizViewer() {
           if (playersError) {
             console.error("[QuizViewer] players error:", playersError);
           } else {
-            // maintain consistent order: sort by name
             const list = (playersData as PlayerRow[]) ?? [];
             list.sort((a, b) => a.name.localeCompare(b.name));
             setPlayers(list);
@@ -135,10 +161,7 @@ export default function QuizViewer() {
               .in("round_id", roundIds);
 
           if (questionsError) {
-            console.error(
-              "[QuizViewer] questions error:",
-              questionsError
-            );
+            console.error("[QuizViewer] questions error:", questionsError);
           } else {
             const ids = new Set<string>();
             (questionsData ?? []).forEach((q: any) =>
@@ -151,9 +174,7 @@ export default function QuizViewer() {
         setLoading(false);
       } catch (err: any) {
         console.error("[QuizViewer] unexpected error:", err);
-        setMessage(
-          err.message ?? "Error loading quiz. Try again later."
-        );
+        setMessage(err.message ?? "Error loading quiz. Try again later.");
         setLoading(false);
       }
     }
@@ -215,11 +236,9 @@ export default function QuizViewer() {
             <p className="text-xs text-neutral-400">
               {quiz.quiz_date}
               {quiz.is_big_quiz && (
-                <span
-  className="inline-flex items-center px-2 py-[2px] ml-1.5 rounded-md border border-blue-400/60 bg-blue-400/10 text-[10px] font-medium uppercase tracking-wide  text-blue-200">
-  Big Quiz
-</span>
-
+                <span className="inline-flex items-center px-2 py-[2px] ml-1.5 rounded-md border border-blue-400/60 bg-blue-400/10 text-[10px] font-medium uppercase tracking-wide text-blue-200">
+                  Big Quiz
+                </span>
               )}
             </p>
           </div>
@@ -230,18 +249,18 @@ export default function QuizViewer() {
           <StatCard
             label="Placement"
             value={
-              winText ??
-              (quiz.position != null ? `${quiz.position}` : "—")
+              winText ?? (quiz.position != null ? `${quiz.position}` : "—")
             }
+            isWin={quiz.position === 1}
           />
           <StatCard
             label="Points"
             value={
               totalMax > 0
                 ? `${totalScore}/${totalMax} (${(
-                  (totalScore / totalMax) *
-                  100
-                ).toFixed(1)}%)`
+                    (totalScore / totalMax) *
+                    100
+                  ).toFixed(1)}%)`
                 : "—"
             }
           />
@@ -249,17 +268,16 @@ export default function QuizViewer() {
             label="Attendees"
             value={
               attendeesCount > 0
-                ? `${attendeesCount} player${attendeesCount === 1 ? "" : "s"
-                }`
+                ? `${attendeesCount} player${
+                    attendeesCount === 1 ? "" : "s"
+                  }`
                 : "—"
             }
           />
           <StatCard
             label="Teams"
             value={
-              quiz.teams_total != null
-                ? `${quiz.teams_total} total`
-                : "—"
+              quiz.teams_total != null ? `${quiz.teams_total} total` : "—"
             }
           />
         </div>
@@ -284,15 +302,13 @@ export default function QuizViewer() {
       {/* Rounds */}
       <section className="border border-neutral-800 rounded-lg p-3 space-y-2">
         <div className="flex items-center justify-between mb-1">
-          <h2 className="text-xs font-semibold text-neutral-200">
-            Rounds
-          </h2>
+          <h2 className="text-xs font-semibold text-neutral-200">Rounds</h2>
           <p className="text-[11px] text-neutral-400">
             Tap a round to view / edit questions
           </p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-xs">
+          <table className="w-full border-collapse text-[11px]">
             <thead>
               <tr className="border-b border-neutral-800">
                 <th className="text-left py-1 px-1">#</th>
@@ -306,7 +322,7 @@ export default function QuizViewer() {
               {rounds.map((r) => {
                 const hasQuestions = roundsWithQuestions.has(r.id);
                 const hasNotes =
-                  r.notes != null && r.notes.trim().length > 0;
+                  !!r.notes && r.notes.trim().length > 0;
 
                 return (
                   <tr
@@ -314,7 +330,9 @@ export default function QuizViewer() {
                     className="border-b border-neutral-900 last:border-0 hover:bg-neutral-900 cursor-pointer"
                     onClick={() => goToRound(r.round_number)}
                   >
-                    <td className="py-1 px-1 align-top">{r.round_number}</td>
+                    <td className="py-1 px-1 align-top">
+                      {r.round_number}
+                    </td>
 
                     {/* Round name + HU badge */}
                     <td className="py-1 px-1 align-top">
@@ -324,11 +342,9 @@ export default function QuizViewer() {
                         </span>
 
                         {r.highest_unique && (
-                          <span
-                            className="inline-flex items-center px-2 py-[2px] rounded-md border border-emerald-300  bg-emerald-300/20  text-[10px] font-medium uppercase tracking-wide  text-emerald-100 shadow-[0_0_10px_rgba(16,185,129,0.6)]">
+                          <span className="inline-flex items-center px-2 py-[2px] rounded-md border border-emerald-300 bg-emerald-300/20 text-[10px] font-medium uppercase tracking-wide text-emerald-100 shadow-[0_0_10px_rgba(16,185,129,0.6)]">
                             HU
                           </span>
-
                         )}
                       </div>
                     </td>
@@ -348,19 +364,20 @@ export default function QuizViewer() {
                           {hasNotes && <span>Notes</span>}
                         </span>
                       ) : (
-                        <span className="text-[10px] text-neutral-500">—</span>
+                        <span className="text-[10px] text-neutral-500">
+                          —
+                        </span>
                       )}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
-
           </table>
         </div>
       </section>
 
-      {/* Top 3 + Teams */}
+      {/* Top 3 results */}
       <section className="border border-neutral-800 rounded-lg p-3 space-y-2">
         <h2 className="text-xs font-semibold text-neutral-200 mb-1">
           Results
@@ -376,28 +393,24 @@ export default function QuizViewer() {
           <tbody>
             <ResultRow
               label="1st"
-              teamName={(quiz as any).first_team_name}
-              score={(quiz as any).first_team_score}
-              isUs={(quiz as any).first_team_is_us}
+              teamName={quiz.first_team_name}
+              score={quiz.first_team_score}
+              isUs={quiz.first_team_is_us}
             />
             <ResultRow
               label="2nd"
-              teamName={(quiz as any).second_team_name}
-              score={(quiz as any).second_team_score}
-              isUs={(quiz as any).second_team_is_us}
+              teamName={quiz.second_team_name}
+              score={quiz.second_team_score}
+              isUs={quiz.second_team_is_us}
             />
             <ResultRow
               label="3rd"
-              teamName={(quiz as any).third_team_name}
-              score={(quiz as any).third_team_score}
-              isUs={(quiz as any).third_team_is_us}
+              teamName={quiz.third_team_name}
+              score={quiz.third_team_score}
+              isUs={quiz.third_team_is_us}
             />
           </tbody>
         </table>
-        <p className="text-[11px] text-neutral-400 mt-1">
-          Total teams:{" "}
-          {quiz.teams_total != null ? quiz.teams_total : "—"}
-        </p>
       </section>
 
       {/* Quiz notes */}
@@ -428,11 +441,25 @@ export default function QuizViewer() {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({
+  label,
+  value,
+  isWin = false,
+}: {
+  label: string;
+  value: string;
+  isWin?: boolean;
+}) {
   return (
     <div className="border border-neutral-800 rounded-lg px-3 py-2">
       <div className="text-[11px] text-neutral-400">{label}</div>
-      <div className="text-sm font-semibold text-neutral-50">
+      <div
+        className={
+          isWin
+            ? "inline-block text-sm font-semibold text-emerald-300 animate-pulse drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]"
+            : "text-sm font-semibold text-neutral-50"
+        }
+      >
         {value}
       </div>
     </div>
@@ -453,21 +480,50 @@ function ResultRow({
   if (!teamName && score == null) {
     return null;
   }
+
+  // Highlight 1st place when it's us, matching the "Win" styling
+  const isWinRow = label === "1st" && !!isUs;
+
   return (
-    <tr className="border-b border-neutral-900 last:border-0">
+    <tr
+      className={
+        "border-b border-neutral-900 last:border-0" +
+        (isWinRow ? " animate-pulse" : "")
+      }
+    >
       <td className="py-1 px-1 text-neutral-300">{label}</td>
       <td className="py-1 px-1">
-        <span className="text-neutral-100">
+        <span
+          className={
+            isWinRow
+              ? "inline-block font-semibold text-emerald-300 drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]"
+              : "text-neutral-100"
+          }
+        >
           {teamName ?? "—"}
           {isUs && (
-            <span className="ml-1 text-[10px] text-emerald-300">
+            <span
+              className={
+                isWinRow
+                  ? "ml-1 text-[10px] font-semibold"
+                  : "ml-1 text-[10px] text-emerald-300"
+              }
+            >
               (us)
             </span>
           )}
         </span>
       </td>
       <td className="py-1 px-1 text-right">
-        {score != null ? score : "—"}
+        <span
+          className={
+            isWinRow
+              ? "inline-block font-semibold text-emerald-300 drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]"
+              : "text-neutral-100"
+          }
+        >
+          {score != null ? score : "—"}
+        </span>
       </td>
     </tr>
   );
