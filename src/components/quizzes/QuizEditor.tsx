@@ -1,10 +1,20 @@
-// src/components/quizzes/QuizEditor.tsx (or src/app/quizzes/[quizId]/QuizEditor.tsx)
-
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/quiz";
+import { format } from "date-fns";
+import { CalendarIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { cn } from "@/lib/utils";
 
 type QuizRow = {
   id: string;
@@ -116,6 +126,15 @@ export default function QuizEditor() {
   const [metaSaving, setMetaSaving] = useState(false);
   const [metaMessage, setMetaMessage] = useState<string | null>(null);
   const [quizDate, setQuizDate] = useState<string>("");
+
+  // Global "save everything" state
+  const [savingAll, setSavingAll] = useState(false);
+
+  // Delete quiz state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const router = useRouter();
 
   // ---- Load quiz, rounds, players, attendees ----
   useEffect(() => {
@@ -338,9 +357,10 @@ export default function QuizEditor() {
     });
   }
 
-  async function handleSaveRounds() {
+  async function handleSaveRounds(): Promise<boolean> {
     setSavingRounds(true);
     setMessage(null);
+    let ok = true;
 
     try {
       // Save round-level fields
@@ -357,6 +377,7 @@ export default function QuizEditor() {
 
         if (error) {
           console.error("[QuizEditor] Error updating round:", error);
+          ok = false;
           throw error;
         }
       }
@@ -372,6 +393,7 @@ export default function QuizEditor() {
 
         if (quizError) {
           console.error("[QuizEditor] Error saving joker:", quizError);
+          ok = false;
           throw quizError;
         }
 
@@ -383,10 +405,16 @@ export default function QuizEditor() {
       setMessage("Rounds & joker saved ✅");
     } catch (err: any) {
       console.error("[QuizEditor] Save rounds error:", err);
+      if (ok) {
+        // If we reached here without explicitly marking failure, mark it now
+        ok = false;
+      }
       setMessage(`Error saving: ${err.message ?? "unknown error"}`);
     } finally {
       setSavingRounds(false);
     }
+
+    return ok;
   }
 
   const totalScore =
@@ -430,10 +458,11 @@ export default function QuizEditor() {
     });
   }
 
-  async function handleSaveResults() {
-    if (!quiz) return;
+  async function handleSaveResults(): Promise<boolean> {
+    if (!quiz) return false;
     setSavingResults(true);
     setResultsMessage(null);
+    let ok = true;
 
     try {
       const toInt = (val: string) =>
@@ -490,6 +519,7 @@ export default function QuizEditor() {
 
       if (error) {
         console.error("[QuizEditor] Save results error:", error);
+        ok = false;
         throw error;
       }
 
@@ -514,12 +544,15 @@ export default function QuizEditor() {
 
       setResultsMessage("Results saved ✅");
     } catch (err: any) {
+      ok = false;
       setResultsMessage(
         `Error saving results: ${err.message ?? "unknown error"}`
       );
     } finally {
       setSavingResults(false);
     }
+
+    return ok;
   }
 
   // ---- Metadata handlers (date + attendees) ----
@@ -532,11 +565,12 @@ export default function QuizEditor() {
     );
   }
 
-  async function saveMetadata() {
-    if (!quiz) return;
+  async function saveMetadata(): Promise<boolean> {
+    if (!quiz) return false;
 
     setMetaSaving(true);
     setMetaMessage(null);
+    let ok = true;
 
     try {
       // Update quiz date
@@ -547,6 +581,7 @@ export default function QuizEditor() {
 
       if (quizError) {
         console.error("[QuizEditor] update quiz metadata error:", quizError);
+        ok = false;
         throw quizError;
       }
 
@@ -558,6 +593,7 @@ export default function QuizEditor() {
 
       if (deleteError) {
         console.error("[QuizEditor] delete quiz_players error:", deleteError);
+        ok = false;
         throw deleteError;
       }
 
@@ -576,6 +612,7 @@ export default function QuizEditor() {
             "[QuizEditor] insert quiz_players error:",
             insertError
           );
+          ok = false;
           throw insertError;
         }
       }
@@ -586,13 +623,14 @@ export default function QuizEditor() {
 
       setMetaMessage("Metadata saved ✅");
     } catch (err: any) {
+      ok = false;
       console.error("[QuizEditor] saveMetadata error:", err);
-      setMetaMessage(
-        err.message ?? "Failed to save metadata."
-      );
+      setMetaMessage(err.message ?? "Failed to save metadata.");
     } finally {
       setMetaSaving(false);
     }
+
+    return ok;
   }
 
   // ---- Questions editor ----
@@ -623,6 +661,7 @@ export default function QuizEditor() {
         }`
       );
       setQuestions([]);
+
       setQuestionsLoading(false);
       return;
     }
@@ -927,6 +966,61 @@ export default function QuizEditor() {
     setQuestionsMessage(null);
   }
 
+  // ---- Delete quiz handler ----
+
+  async function handleDeleteQuiz() {
+    if (!quiz) return;
+    setDeleting(true);
+
+    try {
+      const { error } = await supabase
+        .from("quizzes")
+        .delete()
+        .eq("id", quiz.id);
+
+      if (error) {
+        console.error("[QuizEditor] Error deleting quiz:", error);
+        setMessage(`Failed to delete quiz: ${error.message ?? "unknown error"}`);
+        setDeleting(false);
+        setShowDeleteModal(false);
+        return;
+      }
+
+      // Redirect to quizzes list after successful deletion
+      router.push("/quizzes");
+    } catch (err: any) {
+      console.error("[QuizEditor] Delete quiz error:", err);
+      setMessage(`Error deleting quiz: ${err.message ?? "unknown error"}`);
+      setDeleting(false);
+      setShowDeleteModal(false);
+    }
+  }
+
+  // ---- Save everything handler ----
+
+  async function handleSaveAll() {
+    if (!quiz) return;
+    setSavingAll(true);
+    // Clear global and per-section messages so the new ones are obvious
+    setMessage(null);
+    setMetaMessage(null);
+    setResultsMessage(null);
+
+    const metaOk = await saveMetadata();
+    const roundsOk = await handleSaveRounds();
+    const resultsOk = await handleSaveResults();
+
+    if (metaOk && roundsOk && resultsOk) {
+      setMessage("All changes saved ✅");
+    } else {
+      setMessage(
+        "Some sections failed to save. Check messages above for details."
+      );
+    }
+
+    setSavingAll(false);
+  }
+
   // ---- Render ----
 
   if (loading) {
@@ -948,16 +1042,25 @@ export default function QuizEditor() {
   return (
     <main className="max-w-2xl mx-auto p-4 space-y-4">
       <header className="space-y-1">
-        <h1 className="text-xl font-bold">
-          {quiz.quiz_name} – {quiz.quiz_date}
-        </h1>
-        <p className="text-sm text-gray-600">
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-bold text-neutral-100">
+            {quiz.quiz_name} – {quiz.quiz_date}
+          </h1>
+          <button
+            type="button"
+            onClick={() => setShowDeleteModal(true)}
+            className="text-xs text-red-500 hover:text-red-400 underline"
+          >
+            Delete Quiz
+          </button>
+        </div>
+        <p className="text-sm text-muted-foreground">
           {quiz.is_big_quiz ? "Big quiz" : "Small quiz"}
           {quiz.position != null ? ` · Position: ${quiz.position}` : ""}
           {quiz.teams_total != null ? ` of ${quiz.teams_total} teams` : ""}
         </p>
         {quiz.joker_round_number != null && (
-          <p className="text-xs text-gray-600">
+          <p className="text-xs text-muted-foreground">
             Joker: Round {quiz.joker_round_number}
           </p>
         )}
@@ -984,7 +1087,7 @@ export default function QuizEditor() {
                   type="button"
                   onClick={handleSaveQuizNotes}
                   disabled={quizNotesSaving}
-                  className="px-3 py-1 border border-neutral-700 rounded bg-neutral-900 disabled:opacity-60"
+                  className="px-3 py-1 border border-neutral-700 rounded bg-neutral-900 text-neutral-100 hover:bg-neutral-800 disabled:opacity-60"
                 >
                   {quizNotesSaving ? "Saving…" : "Save notes"}
                 </button>
@@ -1005,25 +1108,35 @@ export default function QuizEditor() {
           <h2 className="text-xs font-semibold text-neutral-200">
             Quiz metadata
           </h2>
-          <button
-            type="button"
-            onClick={saveMetadata}
-            disabled={metaSaving}
-            className="px-3 py-1 text-xs border border-neutral-700 rounded bg-neutral-900 disabled:opacity-60"
-          >
-            {metaSaving ? "Saving…" : "Save metadata"}
-          </button>
         </div>
 
         {/* Date input */}
         <div className="flex flex-col gap-1">
-          <label className="text-[11px] text-neutral-400">Date</label>
-          <input
-            type="date"
-            value={quizDate ?? ""}
-            onChange={(e) => setQuizDate(e.target.value)}
-            className="bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-[11px] text-neutral-100"
-          />
+          <label className="text-[11px] text-muted-foreground">Date</label>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className={cn(
+                  "w-full justify-start text-left font-normal",
+                  !quizDate && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {quizDate ? format(new Date(quizDate), "PPP") : "Pick a date"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={quizDate ? new Date(quizDate) : undefined}
+                onSelect={(date) =>
+                  setQuizDate(date ? format(date, "yyyy-MM-dd") : "")
+                }
+                defaultMonth={quizDate ? new Date(quizDate) : new Date()}
+              />
+            </PopoverContent>
+          </Popover>
         </div>
 
         {/* Attendees multi-select */}
@@ -1064,170 +1177,158 @@ export default function QuizEditor() {
 
       {/* Rounds + Joker + Questions button */}
       <section className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="text-left py-1 pr-2">#</th>
-              <th className="text-left py-1 pr-2">Round</th>
-              <th className="text-right py-1 px-2">Score</th>
-              <th className="text-right py-1 px-2">Max</th>
-              <th className="text-center py-1 px-2">HU</th>
-              <th className="text-center py-1 px-2">Joker</th>
-              <th className="text-right py-1 px-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rounds.map((round, idx) => {
-              const roundName = (round.round_name ?? "").toLowerCase();
-              const isPictures =
-                roundName.includes("picture") ||
-                round.round_number === 8;
+        <RadioGroup
+          value={jokerRoundNumber?.toString() ?? ""}
+          onValueChange={(value) => setJokerRoundNumber(value ? Number(value) : null)}
+        >
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-neutral-800">
+                <th className="text-left py-1 pr-2 text-neutral-200">#</th>
+                <th className="text-left py-1 pr-2 text-neutral-200">Round</th>
+                <th className="text-right py-1 px-2 text-neutral-200">Score</th>
+                <th className="text-right py-1 px-2 text-neutral-200">Max</th>
+                <th className="text-center py-1 px-2 text-neutral-200">HU</th>
+                <th className="text-center py-1 px-2 text-neutral-200">Joker</th>
+                <th className="text-right py-1 px-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rounds.map((round, idx) => {
+                const roundName = (round.round_name ?? "").toLowerCase();
+                const isPictures =
+                  roundName.includes("picture") ||
+                  round.round_number === 8;
 
-              return (
-                <tr key={round.id} className="border-b last:border-0">
-                  <td className="py-1 pr-2 align-top">
-                    {round.round_number}
-                  </td>
-                  <td className="py-1 pr-2">
-                    <input
-                      type="text"
-                      className="w-full border rounded px-1 py-0.5 text-sm"
-                      value={round.round_name ?? ""}
-                      onChange={(e) =>
-                        handleRoundFieldChange(
-                          idx,
-                          "round_name",
-                          e.target.value
-                        )
-                      }
-                    />
-                  </td>
-                  <td className="py-1 px-2 text-right">
-                    <input
-                      type="number"
-                      className="w-16 border rounded px-1 py-0.5 text-right text-sm"
-                      value={round.score ?? ""}
-                      onChange={(e) =>
-                        handleRoundFieldChange(
-                          idx,
-                          "score",
-                          e.target.value
-                        )
-                      }
-                      min={0}
-                    />
-                  </td>
-                  <td className="py-1 px-2 text-right">
-                    <input
-                      type="number"
-                      className="w-16 border rounded px-1 py-0.5 text-right text-sm"
-                      value={round.max_score ?? ""}
-                      onChange={(e) =>
-                        handleRoundFieldChange(
-                          idx,
-                          "max_score",
-                          e.target.value
-                        )
-                      }
-                      min={0}
-                    />
-                  </td>
-
-                  <td className="py-1 px-2 text-center">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(round.highest_unique)}
-                      onChange={(e) =>
-                        handleRoundHighestUniqueChange(
-                          idx,
-                          e.target.checked
-                        )
-                      }
-                    />
-                  </td>
-
-                  <td className="py-1 px-2 text-center">
-                    {isPictures ? (
-                      <span className="text-xs text-gray-400">—</span>
-                    ) : (
+                return (
+                  <tr key={round.id} className="border-b border-neutral-800 last:border-0">
+                    <td className="py-1 pr-2 align-top text-neutral-200">
+                      {round.round_number}
+                    </td>
+                    <td className="py-1 pr-2">
                       <input
-                        type="radio"
-                        name="jokerRound"
-                        checked={
-                          jokerRoundNumber === round.round_number
-                        }
-                        onChange={() =>
-                          setJokerRoundNumber(round.round_number)
+                        type="text"
+                        className="w-full border border-neutral-700 rounded px-1 py-0.5 text-sm bg-neutral-950 text-neutral-100"
+                        value={round.round_name ?? ""}
+                        onChange={(e) =>
+                          handleRoundFieldChange(
+                            idx,
+                            "round_name",
+                            e.target.value
+                          )
                         }
                       />
-                    )}
-                  </td>
-                  <td className="py-1 px-2 text-right">
-                    <button
-                      type="button"
-                      className="text-xs underline"
-                      onClick={() => openQuestionsEditor(idx)}
-                    >
-                      Questions
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    </td>
+                    <td className="py-1 px-2 text-right">
+                      <input
+                        type="number"
+                        className="w-16 border border-neutral-700 rounded px-1 py-0.5 text-right text-sm bg-neutral-950 text-neutral-100"
+                        value={round.score ?? ""}
+                        onChange={(e) =>
+                          handleRoundFieldChange(
+                            idx,
+                            "score",
+                            e.target.value
+                          )
+                        }
+                        min={0}
+                      />
+                    </td>
+                    <td className="py-1 px-2 text-right">
+                      <input
+                        type="number"
+                        className="w-16 border border-neutral-700 rounded px-1 py-0.5 text-right text-sm bg-neutral-950 text-neutral-100"
+                        value={round.max_score ?? ""}
+                        onChange={(e) =>
+                          handleRoundFieldChange(
+                            idx,
+                            "max_score",
+                            e.target.value
+                          )
+                        }
+                        min={0}
+                      />
+                    </td>
+
+                    <td className="py-1 px-2 text-center">
+                      <Checkbox
+                        checked={Boolean(round.highest_unique)}
+                        onCheckedChange={(checked) =>
+                          handleRoundHighestUniqueChange(
+                            idx,
+                            checked === true
+                          )
+                        }
+                      />
+                    </td>
+
+                    <td className="py-1 px-2 text-center">
+                      {isPictures ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : (
+                        <RadioGroupItem value={round.round_number.toString()} />
+                      )}
+                    </td>
+                    <td className="py-1 px-2 text-right">
+                      <button
+                        type="button"
+                        className="text-xs underline text-emerald-500"
+                        onClick={() => openQuestionsEditor(idx)}
+                      >
+                        Questions
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </RadioGroup>
       </section>
 
-      {/* Rounds summary + save */}
+      {/* Rounds summary (no button now) */}
       <section className="flex items-center justify-between text-sm">
         <div>
-          <span className="font-medium">
+          <span className="font-medium text-neutral-200">
             Total: {totalScore} / {totalMax}
           </span>
           {totalMax > 0 && (
-            <span className="ml-2 text-gray-600">
+            <span className="ml-2 text-muted-foreground">
               ({((totalScore / totalMax) * 100).toFixed(1)}%)
             </span>
           )}
         </div>
-        <button
-          onClick={handleSaveRounds}
-          disabled={savingRounds}
-          className="bg-black text-white px-3 py-1 rounded disabled:opacity-60"
-        >
-          {savingRounds ? "Saving…" : "Save rounds & joker"}
-        </button>
       </section>
 
       {message && (
-        <p className="text-sm text-gray-700">
+        <p className="text-sm text-neutral-400">
           {message}
         </p>
       )}
 
       {/* Results / podium editor */}
-      <section className="mt-4 border rounded p-3 space-y-3">
+      <section className="mt-4 border border-neutral-800 rounded p-3 space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-sm">Results / Top teams</h2>
+          <h2 className="font-semibold text-sm text-neutral-200">Results / Top teams</h2>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-xs">
             <thead>
-              <tr className="border-b">
-                <th className="text-left py-1 px-1">Position</th>
-                <th className="text-left py-1 px-1">Team name</th>
-                <th className="text-right py-1 px-1">Score</th>
-                <th className="text-center py-1 px-1">Our team?</th>
+              <tr className="border-b border-neutral-800">
+                <th className="text-left py-1 px-1 text-neutral-200">Position</th>
+                <th className="text-left py-1 px-1 text-neutral-200">Team name</th>
+                <th className="text-right py-1 px-1 text-neutral-200">Score</th>
+                <th className="text-center py-1 px-1 text-neutral-200">Our team?</th>
               </tr>
             </thead>
             <tbody>
-              <tr className="border-b">
-                <td className="py-1 px-1">1st</td>
+              <tr className="border-b border-neutral-800">
+                <td className="py-1 px-1 text-neutral-200">1st</td>
                 <td className="py-1 px-1">
                   <input
                     type="text"
-                    className="w-full border rounded px-1 py-0.5"
+                    className="w-full border border-neutral-700 rounded px-1 py-0.5 bg-neutral-950 text-neutral-100"
                     value={results.firstTeamName}
                     onChange={(e) =>
                       handleResultsChange(
@@ -1240,7 +1341,7 @@ export default function QuizEditor() {
                 <td className="py-1 px-1 text-right">
                   <input
                     type="number"
-                    className="w-16 border rounded px-1 py-0.5 text-right"
+                    className="w-16 border border-neutral-700 rounded px-1 py-0.5 text-right bg-neutral-950 text-neutral-100"
                     value={results.firstTeamScore}
                     onChange={(e) =>
                       handleResultsChange(
@@ -1251,24 +1352,23 @@ export default function QuizEditor() {
                   />
                 </td>
                 <td className="py-1 px-1 text-center">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={results.firstTeamIsUs}
-                    onChange={(e) =>
+                    onCheckedChange={(checked) =>
                       handleResultsChange(
                         "firstTeamIsUs",
-                        e.target.checked
+                        checked === true
                       )
                     }
                   />
                 </td>
               </tr>
-              <tr className="border-b">
-                <td className="py-1 px-1">2nd</td>
+              <tr className="border-b border-neutral-800">
+                <td className="py-1 px-1 text-neutral-200">2nd</td>
                 <td className="py-1 px-1">
                   <input
                     type="text"
-                    className="w-full border rounded px-1 py-0.5"
+                    className="w-full border border-neutral-700 rounded px-1 py-0.5 bg-neutral-950 text-neutral-100"
                     value={results.secondTeamName}
                     onChange={(e) =>
                       handleResultsChange(
@@ -1281,7 +1381,7 @@ export default function QuizEditor() {
                 <td className="py-1 px-1 text-right">
                   <input
                     type="number"
-                    className="w-16 border rounded px-1 py-0.5 text-right"
+                    className="w-16 border border-neutral-700 rounded px-1 py-0.5 text-right bg-neutral-950 text-neutral-100"
                     value={results.secondTeamScore}
                     onChange={(e) =>
                       handleResultsChange(
@@ -1292,24 +1392,23 @@ export default function QuizEditor() {
                   />
                 </td>
                 <td className="py-1 px-1 text-center">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={results.secondTeamIsUs}
-                    onChange={(e) =>
+                    onCheckedChange={(checked) =>
                       handleResultsChange(
                         "secondTeamIsUs",
-                        e.target.checked
+                        checked === true
                       )
                     }
                   />
                 </td>
               </tr>
-              <tr className="border-b">
-                <td className="py-1 px-1">3rd</td>
+              <tr className="border-b border-neutral-800">
+                <td className="py-1 px-1 text-neutral-200">3rd</td>
                 <td className="py-1 px-1">
                   <input
                     type="text"
-                    className="w-full border rounded px-1 py-0.5"
+                    className="w-full border border-neutral-700 rounded px-1 py-0.5 bg-neutral-950 text-neutral-100"
                     value={results.thirdTeamName}
                     onChange={(e) =>
                       handleResultsChange(
@@ -1322,7 +1421,7 @@ export default function QuizEditor() {
                 <td className="py-1 px-1 text-right">
                   <input
                     type="number"
-                    className="w-16 border rounded px-1 py-0.5 text-right"
+                    className="w-16 border border-neutral-700 rounded px-1 py-0.5 text-right bg-neutral-950 text-neutral-100"
                     value={results.thirdTeamScore}
                     onChange={(e) =>
                       handleResultsChange(
@@ -1333,13 +1432,12 @@ export default function QuizEditor() {
                   />
                 </td>
                 <td className="py-1 px-1 text-center">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={results.thirdTeamIsUs}
-                    onChange={(e) =>
+                    onCheckedChange={(checked) =>
                       handleResultsChange(
                         "thirdTeamIsUs",
-                        e.target.checked
+                        checked === true
                       )
                     }
                   />
@@ -1349,11 +1447,11 @@ export default function QuizEditor() {
           </table>
         </div>
 
-        <div className="flex items-center gap-2 text-[11px] mt-2">
+        <div className="flex items-center gap-2 text-[11px] mt-2 text-neutral-200">
           <span>Our position (if not in top 3):</span>
           <input
             type="number"
-            className="w-16 border rounded px-1 py-0.5 text-right"
+            className="w-16 border border-neutral-700 rounded px-1 py-0.5 text-right bg-neutral-950 text-neutral-100"
             value={results.ourPosition}
             onChange={(e) =>
               handleResultsChange("ourPosition", e.target.value)
@@ -1362,46 +1460,48 @@ export default function QuizEditor() {
           />
         </div>
 
-        <div className="flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2">
-            <span>Total teams:</span>
-            <input
-              type="number"
-              className="w-16 border rounded px-1 py-0.5 text-right"
-              value={results.teamsTotal}
-              onChange={(e) =>
-                handleResultsChange("teamsTotal", e.target.value)
-              }
-              min={0}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={handleSaveResults}
-            disabled={savingResults}
-            className="px-3 py-1 border rounded bg-white"
-          >
-            {savingResults ? "Saving…" : "Save results"}
-          </button>
+        <div className="flex items-center gap-2 text-xs mt-1 text-neutral-200">
+          <span>Total teams:</span>
+          <input
+            type="number"
+            className="w-16 border border-neutral-700 rounded px-1 py-0.5 text-right bg-neutral-950 text-neutral-100"
+            value={results.teamsTotal}
+            onChange={(e) =>
+              handleResultsChange("teamsTotal", e.target.value)
+            }
+            min={0}
+          />
         </div>
 
         {resultsMessage && (
-          <p className="text-xs text-gray-700 mt-1">
+          <p className="text-xs text-neutral-400 mt-1">
             {resultsMessage}
           </p>
         )}
       </section>
 
+      {/* Global Save button under all data inputs */}
+      <section className="flex justify-end">
+        <button
+          type="button"
+          onClick={handleSaveAll}
+          disabled={savingAll || metaSaving || savingRounds || savingResults}
+          className="mt-2 bg-emerald-500 text-black text-sm font-semibold px-4 py-2 rounded-full shadow-md disabled:opacity-60"
+        >
+          {savingAll ? "Saving…" : "Save quiz"}
+        </button>
+      </section>
+
       {/* Questions editor panel */}
       {currentRound && (
-        <section className="mt-6 border rounded p-3 space-y-3 bg-gray-50">
+        <section className="mt-6 border border-neutral-800 rounded p-3 space-y-3 bg-neutral-950">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="font-semibold text-sm">
+              <h2 className="font-semibold text-sm text-neutral-200">
                 Questions – Round {currentRound.round_number}:{" "}
                 {currentRound.round_name}
               </h2>
-              <p className="text-xs text-gray-600">
+              <p className="text-xs text-muted-foreground">
                 Enter question, your answer, whether it was correct, and
                 set type + points. Joker is applied automatically for this
                 round if selected above.
@@ -1409,11 +1509,11 @@ export default function QuizEditor() {
 
               {/* Round-level notes */}
               <div className="mt-2">
-                <label className="text-[11px] text-gray-600 block mb-1">
+                <label className="text-[11px] text-muted-foreground block mb-1">
                   Round notes
                 </label>
                 <textarea
-                  className="w-full min-h-[60px] border border-neutral-300 rounded bg-white text-xs px-2 py-1 text-gray-900"
+                  className="w-full min-h-[60px] border border-neutral-700 rounded bg-neutral-900 text-xs px-2 py-1 text-neutral-100"
                   placeholder="Notes for this round – special rules, tiebreakers, funny moments..."
                   value={currentRoundNotes}
                   onChange={(e) =>
@@ -1424,7 +1524,7 @@ export default function QuizEditor() {
             </div>
             <button
               type="button"
-              className="text-xs underline"
+              className="text-xs underline text-emerald-500"
               onClick={closeQuestionsEditor}
             >
               Close
@@ -1432,40 +1532,40 @@ export default function QuizEditor() {
           </div>
 
           {questionsLoading ? (
-            <p className="text-sm">Loading questions…</p>
+            <p className="text-sm text-neutral-200">Loading questions…</p>
           ) : (
             <>
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-xs">
                   <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-1 px-1">#</th>
-                      <th className="text-left py-1 px-1">Question</th>
-                      <th className="text-left py-1 px-1">
+                    <tr className="border-b border-neutral-800">
+                      <th className="text-left py-1 px-1 text-neutral-200">#</th>
+                      <th className="text-left py-1 px-1 text-neutral-200">Question</th>
+                      <th className="text-left py-1 px-1 text-neutral-200">
                         Our answer
                       </th>
-                      <th className="text-center py-1 px-1">
+                      <th className="text-center py-1 px-1 text-neutral-200">
                         Correct?
                       </th>
-                      <th className="text-left py-1 px-1">Type</th>
-                      <th className="text-right py-1 px-1">
+                      <th className="text-left py-1 px-1 text-neutral-200">Type</th>
+                      <th className="text-right py-1 px-1 text-neutral-200">
                         Points scored
                       </th>
-                      <th className="text-right py-1 px-1">
+                      <th className="text-right py-1 px-1 text-neutral-200">
                         Max points
                       </th>
                     </tr>
                   </thead>
                   <tbody>
                     {questions.map((q, idx) => (
-                      <tr key={idx} className="border-b last:border-0">
-                        <td className="py-1 px-1 align-top">
+                      <tr key={idx} className="border-b border-neutral-800 last:border-0">
+                        <td className="py-1 px-1 align-top text-neutral-200">
                           {q.question_number}
                         </td>
                         <td className="py-1 px-1">
                           <input
                             type="text"
-                            className="w-full border rounded px-1 py-0.5"
+                            className="w-full border border-neutral-700 rounded px-1 py-0.5 bg-neutral-900 text-neutral-100"
                             value={q.question_text ?? ""}
                             onChange={(e) =>
                               handleQuestionFieldChange(
@@ -1479,7 +1579,7 @@ export default function QuizEditor() {
                         <td className="py-1 px-1">
                           <input
                             type="text"
-                            className="w-full border rounded px-1 py-0.5"
+                            className="w-full border border-neutral-700 rounded px-1 py-0.5 bg-neutral-900 text-neutral-100"
                             value={q.our_answer ?? ""}
                             onChange={(e) =>
                               handleQuestionFieldChange(
@@ -1491,21 +1591,20 @@ export default function QuizEditor() {
                           />
                         </td>
                         <td className="py-1 px-1 text-center">
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             checked={Boolean(q.is_correct)}
-                            onChange={(e) =>
+                            onCheckedChange={(checked) =>
                               handleQuestionFieldChange(
                                 idx,
                                 "is_correct",
-                                e.target.checked
+                                checked === true
                               )
                             }
                           />
                         </td>
                         <td className="py-1 px-1">
                           <select
-                            className="border rounded px-1 py-0.5"
+                            className="border border-neutral-700 rounded px-1 py-0.5 bg-neutral-900 text-neutral-100"
                             value={q.question_type}
                             onChange={(e) =>
                               handleQuestionFieldChange(
@@ -1523,7 +1622,7 @@ export default function QuizEditor() {
                         <td className="py-1 px-1 text-right">
                           <input
                             type="number"
-                            className="w-16 border rounded px-1 py-0.5 text-right"
+                            className="w-16 border border-neutral-700 rounded px-1 py-0.5 text-right bg-neutral-900 text-neutral-100"
                             value={q.points_scored ?? ""}
                             onChange={(e) =>
                               handleQuestionFieldChange(
@@ -1537,7 +1636,7 @@ export default function QuizEditor() {
                         <td className="py-1 px-1 text-right">
                           <input
                             type="number"
-                            className="w-16 border rounded px-1 py-0.5 text-right"
+                            className="w-16 border border-neutral-700 rounded px-1 py-0.5 text-right bg-neutral-900 text-neutral-100"
                             value={q.points_value ?? ""}
                             onChange={(e) =>
                               handleQuestionFieldChange(
@@ -1556,7 +1655,7 @@ export default function QuizEditor() {
 
               <button
                 type="button"
-                className="mt-2 text-xs underline"
+                className="mt-2 text-xs underline text-emerald-500"
                 onClick={addQuestionRow}
               >
                 + Add question
@@ -1565,7 +1664,7 @@ export default function QuizEditor() {
           )}
 
           {questionsMessage && (
-            <p className="text-xs text-gray-700">
+            <p className="text-xs text-neutral-400">
               {questionsMessage}
             </p>
           )}
@@ -1573,7 +1672,7 @@ export default function QuizEditor() {
           <div className="flex gap-2 justify-end text-xs mt-2">
             <button
               type="button"
-              className="px-3 py-1 border rounded"
+              className="px-3 py-1 border border-neutral-700 rounded bg-neutral-900 text-neutral-100 hover:bg-neutral-800 disabled:opacity-50"
               onClick={() => saveQuestionsAndMaybeNext(false)}
               disabled={questionsSaving}
             >
@@ -1581,7 +1680,7 @@ export default function QuizEditor() {
             </button>
             <button
               type="button"
-              className="px-3 py-1 border rounded"
+              className="px-3 py-1 border border-neutral-700 rounded bg-neutral-900 text-neutral-100 hover:bg-neutral-800 disabled:opacity-50"
               onClick={() => saveQuestionsAndMaybeNext(true)}
               disabled={questionsSaving}
             >
@@ -1589,6 +1688,40 @@ export default function QuizEditor() {
             </button>
           </div>
         </section>
+      )}
+
+      {/* Delete confirmation modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-neutral-900 border border-neutral-700 rounded-lg p-6 max-w-sm mx-4 space-y-4">
+            <h2 className="text-lg font-semibold text-neutral-100">
+              Delete Quiz?
+            </h2>
+            <p className="text-sm text-neutral-300">
+              Are you sure you want to delete{" "}
+              <span className="font-medium">{quiz.quiz_name}</span>? This action
+              is permanent and cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deleting}
+                className="px-4 py-2 text-sm border border-neutral-600 rounded hover:bg-neutral-800 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteQuiz}
+                disabled={deleting}
+                className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-500 disabled:opacity-50"
+              >
+                {deleting ? "Deleting…" : "Yes, Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </main>
   );

@@ -3,7 +3,9 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
+import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { Button } from "@/components/ui/button";
 
 type Props = {
   children: ReactNode;
@@ -12,6 +14,29 @@ type Props = {
 export default function AppShell({ children }: Props) {
   const pathname = usePathname();
   const router = useRouter();
+  const supabase = useMemo(() => getSupabaseBrowserClient(), []);
+
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getUser().then(({ data }) => {
+      if (!mounted) return;
+      setUserEmail(data.user?.email ?? null);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserEmail(session?.user?.email ?? null);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [supabase]);
 
   const isActive = (href: string) =>
     pathname === href || pathname?.startsWith(href + "/");
@@ -35,22 +60,34 @@ export default function AppShell({ children }: Props) {
 
         <div className="flex items-center gap-3">
           {/* New quiz (+) */}
-          <button
+          <Button
             onClick={() => router.push("/add-quiz")}
-            className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-xl leading-none"
+            className="h-8 px-3 bg-emerald-500 text-black hover:bg-emerald-400"
             aria-label="Add new quiz"
+            size="sm"
           >
-            +
-          </button>
+            <span className="text-xs font-semibold">+ Quiz</span>
+          </Button>
 
-          {/* Account placeholder */}
-          <button
-            className="w-8 h-8 rounded-full border border-neutral-700 text-xs flex items-center justify-center"
-            onClick={() => router.push("/account")}
-          >
-            {/* Later: avatar / initials */}
-            Me
-          </button>
+          {/* Account / auth */}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-neutral-300">
+              {userEmail ?? "Not signed in"}
+            </span>
+            <button
+              className="px-3 h-8 rounded-full border border-neutral-700 text-[11px] flex items-center justify-center hover:border-emerald-500"
+              onClick={async () => {
+                if (!userEmail) {
+                  router.push("/login");
+                  return;
+                }
+                await supabase.auth.signOut();
+                router.push("/login");
+              }}
+            >
+              {userEmail ? "Sign out" : "Sign in"}
+            </button>
+          </div>
         </div>
       </header>
 

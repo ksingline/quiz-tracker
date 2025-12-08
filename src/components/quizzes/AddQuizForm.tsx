@@ -8,6 +8,17 @@ import {
     createQuizFromFormat,
     CreateQuizFromFormatResult,
 } from "@/lib/quiz";
+import { format } from "date-fns";
+import { CalendarIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils";
 
 
 type PlayerRow = {
@@ -47,8 +58,20 @@ export default function AddQuizForm() {
     const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
     const [newPlayerName, setNewPlayerName] = useState("");
     const [message, setMessage] = useState<string | null>(null);
+    const [signedIn, setSignedIn] = useState(true);
 
     const maxPlayers = 6;
+
+    // ---- Verify session ----
+    useEffect(() => {
+        supabase.auth.getSession().then(({ data }) => {
+            const hasSession = !!data.session;
+            setSignedIn(hasSession);
+            if (!hasSession) {
+                setMessage("You must be signed in to create a quiz.");
+            }
+        });
+    }, []);
 
     // ---- Load formats (quiz_formats) ----
     useEffect(() => {
@@ -257,6 +280,11 @@ export default function AddQuizForm() {
         e.preventDefault();
         setMessage(null);
 
+        if (!signedIn) {
+            setMessage("You must be signed in to create a quiz.");
+            router.push("/login");
+            return;
+        }
         if (!date) {
             setMessage("Please select a date.");
             return;
@@ -304,17 +332,33 @@ export default function AddQuizForm() {
 
             {/* Step 1: Date */}
             <section className="space-y-3 border border-neutral-800 rounded-lg p-3">
-                <label className="flex-1 text-xs block">
-                    <span className="block mb-1 text-neutral-300">
-                        Date
-                    </span>
-                    <input
-                        type="date"
-                        className="w-full border border-neutral-700 rounded px-2 py-1 text-sm bg-neutral-950"
-                        value={date}
-                        onChange={(e) => setDate(e.target.value)}
-                    />
-                </label>
+                <div className="flex flex-col gap-1">
+                    <label className="text-xs text-muted-foreground">Date</label>
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="outline"
+                                className={cn(
+                                    "w-full justify-start text-left font-normal",
+                                    !date && "text-muted-foreground"
+                                )}
+                            >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {date ? format(new Date(date), "PPP") : "Pick a date"}
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                                mode="single"
+                                selected={date ? new Date(date) : new Date()}
+                                onSelect={(selectedDate) =>
+                                    setDate(selectedDate ? format(selectedDate, "yyyy-MM-dd") : "")
+                                }
+                                defaultMonth={date ? new Date(date) : new Date()}
+                            />
+                        </PopoverContent>
+                    </Popover>
+                </div>
             </section>
 
 
@@ -325,11 +369,10 @@ export default function AddQuizForm() {
                         Quiz format
                     </span>
                     {currentFormat?.supportsBigQuiz && (
-                        <label className="flex items-center gap-2 text-[11px]">
-                            <input
-                                type="checkbox"
+                        <label className="flex items-center gap-2 text-[11px] cursor-pointer">
+                            <Checkbox
                                 checked={isBig}
-                                onChange={(e) => setIsBig(e.target.checked)}
+                                onCheckedChange={(checked) => setIsBig(checked === true)}
                             />
                             <span>Big quiz?</span>
                         </label>

@@ -4,6 +4,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/quiz";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Pencil } from "lucide-react";
 
 type QuizRow = {
   id: string;
@@ -187,7 +199,6 @@ export default function QuizViewer() {
   const totalMax =
     rounds.reduce((sum, r) => sum + (r.max_score ?? 0), 0) || 0;
 
-  const attendeesCount = players.length;
   const winText = useMemo(() => {
     if (!quiz?.position) return null;
     if (quiz.position === 1) return "Win";
@@ -209,7 +220,7 @@ export default function QuizViewer() {
   if (loading) {
     return (
       <div className="max-w-2xl mx-auto p-4">
-        <p className="text-sm text-neutral-300">Loading quiz…</p>
+        <p className="text-sm text-muted-foreground">Loading quiz...</p>
       </div>
     );
   }
@@ -217,7 +228,7 @@ export default function QuizViewer() {
   if (!quiz) {
     return (
       <div className="max-w-2xl mx-auto p-4">
-        <p className="text-sm text-neutral-300">
+        <p className="text-sm text-muted-foreground">
           {message ?? "Quiz not found."}
         </p>
       </div>
@@ -230,15 +241,13 @@ export default function QuizViewer() {
       <section className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h1 className="text-lg font-semibold text-neutral-50">
-              {quiz.quiz_name}
-            </h1>
-            <p className="text-xs text-neutral-400">
+            <h1 className="text-lg font-semibold">{quiz.quiz_name}</h1>
+            <p className="text-xs text-muted-foreground">
               {quiz.quiz_date}
               {quiz.is_big_quiz && (
-                <span className="inline-flex items-center px-2 py-[2px] ml-1.5 rounded-md border border-blue-400/60 bg-blue-400/10 text-[10px] font-medium uppercase tracking-wide text-blue-200">
+                <Badge variant="outline" className="ml-2 border-blue-400/60 bg-blue-400/10 text-blue-300">
                   Big Quiz
-                </span>
+                </Badge>
               )}
             </p>
           </div>
@@ -267,10 +276,8 @@ export default function QuizViewer() {
           <StatCard
             label="Attendees"
             value={
-              attendeesCount > 0
-                ? `${attendeesCount} player${
-                    attendeesCount === 1 ? "" : "s"
-                  }`
+              players.length > 0
+                ? players.map((p) => p.name).join(", ")
                 : "—"
             }
           />
@@ -283,160 +290,136 @@ export default function QuizViewer() {
         </div>
       </section>
 
-      {/* Attendees */}
-      <section className="border border-neutral-800 rounded-lg p-3 space-y-1">
-        <h2 className="text-xs font-semibold text-neutral-200 mb-1">
-          Attendees
-        </h2>
-        {players.length === 0 ? (
-          <p className="text-[11px] text-neutral-400">
-            No attendees recorded.
-          </p>
-        ) : (
-          <p className="text-[11px] text-neutral-200">
-            {players.map((p) => p.name).join(", ")}
-          </p>
-        )}
-      </section>
-
       {/* Rounds */}
-      <section className="border border-neutral-800 rounded-lg p-3 space-y-2">
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="text-xs font-semibold text-neutral-200">Rounds</h2>
-          <p className="text-[11px] text-neutral-400">
-            Tap a round to view / edit questions
-          </p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-[11px]">
-            <thead>
-              <tr className="border-b border-neutral-800">
-                <th className="text-left py-1 px-1">#</th>
-                <th className="text-left py-1 px-1">Round</th>
-                <th className="text-right py-1 px-1">Score</th>
-                <th className="text-right py-1 px-1">Max</th>
-                <th className="text-center py-1 px-1">Details</th>
-              </tr>
-            </thead>
-            <tbody>
+      <Card className="gap-1">
+        <CardHeader className="py-3 px-4">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-xs font-semibold">Rounds</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Tap a round to view / edit questions
+            </p>
+          </div>
+        </CardHeader>
+        <CardContent className="px-4 pb-3 pt-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-8">#</TableHead>
+                <TableHead>Round</TableHead>
+                <TableHead className="text-right w-16">Score</TableHead>
+                <TableHead className="text-right w-16">Max</TableHead>
+                <TableHead className="text-center w-20">Details</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {rounds.map((r) => {
                 const hasQuestions = roundsWithQuestions.has(r.id);
-                const hasNotes =
-                  !!r.notes && r.notes.trim().length > 0;
+                const hasNotes = !!r.notes && r.notes.trim().length > 0;
 
                 return (
-                  <tr
+                  <TableRow
                     key={r.id}
-                    className="border-b border-neutral-900 last:border-0 hover:bg-neutral-900 cursor-pointer"
+                    className="cursor-pointer"
                     onClick={() => goToRound(r.round_number)}
                   >
-                    <td className="py-1 px-1 align-top">
-                      {r.round_number}
-                    </td>
-
-                    {/* Round name + HU badge */}
-                    <td className="py-1 px-1 align-top">
+                    <TableCell className="text-xs">{r.round_number}</TableCell>
+                    <TableCell className="text-xs">
                       <div className="flex items-center gap-2">
-                        <span className="text-neutral-100">
-                          {r.round_name ?? ""}
-                        </span>
-
+                        <span>{r.round_name ?? ""}</span>
                         {r.highest_unique && (
-                          <span className="inline-flex items-center px-2 py-[2px] rounded-md border border-emerald-300 bg-emerald-300/20 text-[10px] font-medium uppercase tracking-wide text-emerald-100 shadow-[0_0_10px_rgba(16,185,129,0.6)]">
+                          <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-400 hover:bg-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.4)]">
                             HU
-                          </span>
+                          </Badge>
                         )}
                       </div>
-                    </td>
-
-                    <td className="py-1 px-1 text-right align-top">
+                    </TableCell>
+                    <TableCell className="text-right text-xs">
                       {r.score ?? "—"}
-                    </td>
-
-                    <td className="py-1 px-1 text-right align-top">
+                    </TableCell>
+                    <TableCell className="text-right text-xs">
                       {r.max_score ?? "—"}
-                    </td>
-
-                    <td className="py-1 px-1 text-center align-top">
+                    </TableCell>
+                    <TableCell className="text-center text-xs">
                       {hasQuestions || hasNotes ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-emerald-300">
+                        <span className="inline-flex items-center gap-1 text-emerald-400">
                           {hasQuestions && <span>Q</span>}
                           {hasNotes && <span>Notes</span>}
                         </span>
                       ) : (
-                        <span className="text-[10px] text-neutral-500">
-                          —
-                        </span>
+                        <span className="text-muted-foreground">—</span>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
-      </section>
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       {/* Top 3 results */}
-      <section className="border border-neutral-800 rounded-lg p-3 space-y-2">
-        <h2 className="text-xs font-semibold text-neutral-200 mb-1">
-          Results
-        </h2>
-        <table className="w-full border-collapse text-[11px]">
-          <thead>
-            <tr className="border-b border-neutral-800">
-              <th className="text-left py-1 px-1">Position</th>
-              <th className="text-left py-1 px-1">Team</th>
-              <th className="text-right py-1 px-1">Score</th>
-            </tr>
-          </thead>
-          <tbody>
-            <ResultRow
-              label="1st"
-              teamName={quiz.first_team_name}
-              score={quiz.first_team_score}
-              isUs={quiz.first_team_is_us}
-            />
-            <ResultRow
-              label="2nd"
-              teamName={quiz.second_team_name}
-              score={quiz.second_team_score}
-              isUs={quiz.second_team_is_us}
-            />
-            <ResultRow
-              label="3rd"
-              teamName={quiz.third_team_name}
-              score={quiz.third_team_score}
-              isUs={quiz.third_team_is_us}
-            />
-          </tbody>
-        </table>
-      </section>
+      <Card className="gap-1">
+        <CardHeader className="py-3 px-4">
+          <CardTitle className="text-xs font-semibold">Results</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-3 pt-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-16">Position</TableHead>
+                <TableHead>Team</TableHead>
+                <TableHead className="text-right w-20">Score</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <ResultRow
+                label="1st"
+                teamName={quiz.first_team_name}
+                score={quiz.first_team_score}
+                isUs={quiz.first_team_is_us}
+              />
+              <ResultRow
+                label="2nd"
+                teamName={quiz.second_team_name}
+                score={quiz.second_team_score}
+                isUs={quiz.second_team_is_us}
+              />
+              <ResultRow
+                label="3rd"
+                teamName={quiz.third_team_name}
+                score={quiz.third_team_score}
+                isUs={quiz.third_team_is_us}
+              />
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       {/* Quiz notes */}
-      <section className="border border-neutral-800 rounded-lg p-3 space-y-1">
-        <h2 className="text-xs font-semibold text-neutral-200 mb-1">
-          Quiz notes
-        </h2>
-        {quiz.notes && quiz.notes.trim() !== "" ? (
-          <p className="text-[11px] text-neutral-200 whitespace-pre-wrap">
-            {quiz.notes}
-          </p>
-        ) : (
-          <p className="text-[11px] text-neutral-500">
-            No notes for this quiz yet.
-          </p>
-        )}
-      </section>
+      <Card className="gap-1">
+        <CardHeader className="py-3 px-4">
+          <CardTitle className="text-xs font-semibold">Quiz notes</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-3 pt-0">
+          {quiz.notes && quiz.notes.trim() !== "" ? (
+            <p className="text-xs whitespace-pre-wrap">{quiz.notes}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No notes for this quiz yet.
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Edit button */}
-      <button
-        type="button"
+      <Button
         onClick={goToEdit}
-        className="fixed bottom-16 right-4 bg-emerald-500 text-black text-sm font-semibold px-4 py-2 rounded-full shadow-lg"
+        className="fixed bottom-16 right-4 rounded-full shadow-lg"
+        size="lg"
       >
+        <Pencil className="h-4 w-4 mr-2" />
         Edit
-      </button>
+      </Button>
     </div>
   );
 }
@@ -451,18 +434,18 @@ function StatCard({
   isWin?: boolean;
 }) {
   return (
-    <div className="border border-neutral-800 rounded-lg px-3 py-2">
-      <div className="text-[11px] text-neutral-400">{label}</div>
+    <Card className="px-3 py-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
       <div
         className={
           isWin
-            ? "inline-block text-sm font-semibold text-emerald-300 animate-pulse drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]"
-            : "text-sm font-semibold text-neutral-50"
+            ? "text-sm font-semibold text-emerald-400 animate-pulse drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]"
+            : "text-sm font-semibold"
         }
       >
         {value}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -481,50 +464,45 @@ function ResultRow({
     return null;
   }
 
-  // Highlight 1st place when it's us, matching the "Win" styling
   const isWinRow = label === "1st" && !!isUs;
 
   return (
-    <tr
-      className={
-        "border-b border-neutral-900 last:border-0" +
-        (isWinRow ? " animate-pulse" : "")
-      }
-    >
-      <td className="py-1 px-1 text-neutral-300">{label}</td>
-      <td className="py-1 px-1">
+    <TableRow className={isWinRow ? "animate-pulse" : ""}>
+      <TableCell className="text-xs text-muted-foreground">{label}</TableCell>
+      <TableCell className="text-xs">
         <span
           className={
             isWinRow
-              ? "inline-block font-semibold text-emerald-300 drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]"
-              : "text-neutral-100"
+              ? "font-semibold text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]"
+              : ""
           }
         >
           {teamName ?? "—"}
           {isUs && (
-            <span
+            <Badge
+              variant="outline"
               className={
                 isWinRow
-                  ? "ml-1 text-[10px] font-semibold"
-                  : "ml-1 text-[10px] text-emerald-300"
+                  ? "ml-2 text-emerald-400 border-emerald-400"
+                  : "ml-2 text-emerald-400 border-emerald-400/50"
               }
             >
-              (us)
-            </span>
+              us
+            </Badge>
           )}
         </span>
-      </td>
-      <td className="py-1 px-1 text-right">
+      </TableCell>
+      <TableCell className="text-right text-xs">
         <span
           className={
             isWinRow
-              ? "inline-block font-semibold text-emerald-300 drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]"
-              : "text-neutral-100"
+              ? "font-semibold text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]"
+              : ""
           }
         >
           {score != null ? score : "—"}
         </span>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }

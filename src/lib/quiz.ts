@@ -1,5 +1,6 @@
 // src/lib/quiz.ts
 
+import { createBrowserClient } from "@supabase/ssr";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 // ---- Supabase client ----
@@ -13,10 +14,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
-export const supabase: SupabaseClient = createClient(
-  supabaseUrl,
-  supabaseAnonKey
-);
+function createSupabaseClient(): SupabaseClient {
+  const isBrowser = typeof window !== "undefined";
+  return isBrowser
+    ? createBrowserClient(supabaseUrl, supabaseAnonKey)
+    : createClient(supabaseUrl, supabaseAnonKey);
+}
+
+export const supabase: SupabaseClient = createSupabaseClient();
 
 // ---- Types ----
 
@@ -111,6 +116,18 @@ export async function createQuizFromFormat(
     notes,
   } = input;
 
+  // Require an authenticated user so we can scope data to the account
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    throw new Error("You must be signed in to create or modify quizzes.");
+  }
+
+  const userId = user.id;
+
   // 0) Normalise team names
   const uniqueNames = Array.from(
     new Set(
@@ -148,6 +165,7 @@ export async function createQuizFromFormat(
       position: position ?? null,
       notes: notes ?? null,
       format_id: format.id,
+      user_id: userId,
     })
     .select()
     .single();
@@ -166,6 +184,7 @@ export async function createQuizFromFormat(
         .from("quizzes")
         .select("*")
         .eq("quiz_date", quizDate)
+        .eq("user_id", userId)
         .maybeSingle();
 
       if (existing && !existingErr) {
@@ -191,11 +210,14 @@ export async function createQuizFromFormat(
   const quiz = quizData as QuizRow;
 
   // 3) Upsert players in bulk by name
-  const playersPayload = uniqueNames.map((name) => ({ name }));
+  const playersPayload = uniqueNames.map((name) => ({
+    name,
+    user_id: userId,
+  }));
 
   const { data: playersData, error: playersError } = await supabase
     .from("players")
-    .upsert(playersPayload, { onConflict: "name" })
+    .upsert(playersPayload, { onConflict: "user_id,name" })
     .select();
 
   if (playersError || !playersData) {
@@ -218,9 +240,10 @@ export async function createQuizFromFormat(
       return {
         quiz_id: quiz.id,
         player_id: playerId,
+        user_id: userId,
       };
     })
-    .filter(Boolean) as { quiz_id: string; player_id: string }[];
+    .filter(Boolean) as { quiz_id: string; player_id: string; user_id: string }[];
 
   if (quizPlayersRows.length > 0) {
     const { error: qpError } = await supabase
@@ -261,6 +284,7 @@ export async function createQuizFromFormat(
     round_name: fr.round_name,
     score: null,
     max_score: isBigQuiz ? fr.default_big_max : fr.default_small_max,
+    user_id: userId,
   }));
 
   const { data: roundsData, error: roundsError } = await supabase
